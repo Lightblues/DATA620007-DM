@@ -1,0 +1,543 @@
+---
+title: "逻辑回归：留学申请"
+author: "韩司仪 20210980106@fudan.edu.cn"
+date: "3/28/2022"
+output: html_document
+---
+
+```{r}
+# 加载所需要的包
+library(ggplot2)
+library(reshape)
+library(dplyr)
+```
+
+```{r}
+# 注释快捷键，ctrl/command+shift+c
+# library(gdtools)
+# ?sys_fonts # 列出系统字体。
+# View(sys_fonts())
+# Win10: SimHei、STXihei
+
+## 设置绘图主题
+# ggplot() + theme_bw()
+# ggplot() + plot_theme_pie
+# ggplot() + plot_theme
+
+# plot_theme <- theme(xxxxxxxxxxx)
+
+# 饼图绘制主题
+theme(panel.background = element_rect(fill = rgb(255, 255, 255, maxColorValue = 255)),
+      plot.background = element_rect(rgb(255, 255, 255, maxColorValue = 255)),
+      axis.text = element_text(color = rgb(236, 241, 249, maxColorValue = 255)),
+      panel.grid.major = element_line(color = rgb(236, 241, 249, maxColorValue = 255)),
+      panel.grid.minor = element_line(color = rgb(236, 241, 249, maxColorValue = 255)),
+      plot.title = element_text(family = "Hei", face = "bold", size = 14),
+      legend.title = element_text(family = "Hei", face = "bold",size = 12),
+      legend.text = element_text(family = "Hei",size = 11)) -> plot_theme_pie # 饼图绘制主题
+## 设置绘图主题
+theme(panel.background = element_rect(fill = rgb(255, 255, 255, maxColorValue = 255)),
+      plot.background = element_rect(rgb(255, 255, 255, maxColorValue = 255)),
+      axis.text = element_text(size = 12,family = "Hei"),
+      axis.text.x = element_text(size = 12, family = "Hei", face = "bold") ,
+      axis.text.y = element_text(size = 12, family = "Hei", face = "bold") ,
+      axis.ticks = element_line(color = rgb(236, 241, 249, maxColorValue = 255)),
+      axis.title = element_text(size = 13, family = "Hei"),
+      panel.grid.major = element_line(size = 1),
+      panel.grid.minor = element_line(color = rgb(236, 241, 249, maxColorValue = 255)),
+      plot.title = element_text(family = "Hei", face = "bold", size = 14),
+      legend.title = element_text(family = "Hei", face = "bold",size = 12),
+      legend.text = element_text(family = "Hei",size = 11)) -> plot_theme   # 其他图形绘制主题
+```
+
+```{r}
+
+## 读入数据
+# tips: option/alt+减号可以打出 <- 
+#       ctrl/command + enter可以运行光标所在行的代码/选定的代码段
+#       R中 true和false可以用TRUE/FALSE or T/F两种方式表示
+descriptive <- read.csv("Data_Cleaning.csv", header = T, stringsAsFactors = F) # 读取原始数据
+
+# tips: ctrl+shift+m可以打出管道函数 %>% 
+#       管道函数的本质是将 %>% 前代码输出的结果，直接导入为 %>% 后函数第一个参数的值
+# paste("a","b")
+# "a" %>% paste("b")
+
+# descriptive %>% View() # 查看数据情况
+descriptive <- descriptive[order(descriptive$index_origin),]  # 将数据按照变量index_origin（原始编号）排序
+
+## 调整变量类型
+descriptive$offertype[descriptive$offertype %in% c("AD小奖", "Offer", "AD无奖")] <- "Admitted"    # 不考虑奖学金，均归入“Admitted“（录取）
+
+descriptive$offertype[descriptive$offertype == "Rej"] <- "Rejected"   
+descriptive <- descriptive[ - which(descriptive$offertype == ""),]   # 删去缺失录取结果的样本
+```
+
+## 3. 描述分析
+
+### 3.1 因变量
+
+因变量:申请结果。数据中，录取的案例占一半以上，其中包括无奖录取、小奖录取和全奖录取，被拒绝的申请占比为 27.6%，还有少部分申请结果为 Waiting List。申请结果分布饼图如下图所示。在后续的建模中，将把Waiting List 划分为拒绝类别。
+
+```{r}
+piechart1 <- ggplot(descriptive) +
+  geom_bar(aes(x = factor("1"), fill = factor(offertype)), position = "fill", width = 1) +
+  # position参数，有stack、fill、dodge
+  scale_fill_manual("申请结果", values = c("grey", "gold", "skyblue")) +
+  coord_polar(theta = "y") +
+  labs(x = "", y = "", title = "\n录取类型") +
+  plot_theme_pie
+
+piechart1
+```
+
+### 3.2 自变量
+
+#### 申请学校
+
+我们先来看热门的申请学校（college_apply）。由于数据存在错误，我们需要对申请学校这一变量进行简单修正：将学校名”Texas A”、“M University”替换”Texas A&M University”，将”Washington University in St”、” Louis”替换为”Washington University in St.Louis”。随后，为了统一申请学校名称，我们要将学校缩写替换为全称，得到的新变量College_apply_new 并入原数据（注意：不考虑缩写字母的大小写差异，需要借助文件美国大学缩写汇总.txt）。根据统一后的学校名称，找出申请人数最多的10所热门学校。
+
+```{r}
+## 修正数据
+# descriptive$college_apply %in% c("Texas A", "M University")得到一个bool mask
+descriptive$college_apply[descriptive$college_apply %in% c("Texas A", "M University")] <- "Texas A&M University"
+descriptive$college_apply[descriptive$college_apply %in% c("Washington University in St", " Louis")] <- "Washington University in St. Louis"
+
+## 统一学校名称
+SuoXie <- read.table("美国大学缩写汇总.txt", header = T)  # 读入常见的美国大学缩写汇总
+# SuoXie %>% View()
+
+college_apply_new <- NULL                                 # 设置初始值
+college_low <- tolower(descriptive$college_apply)         # 不考虑大小写差异（下同）
+suoxie_low <- tolower(SuoXie$ysuoxie)
+
+# dim(descriptive)
+# nrow(descriptive)
+# ncol(descriptive)
+
+for(i in 1:dim(descriptive)[1]){                          # 统一全称和缩写
+  if (college_low[i] %in% suoxie_low) {
+    college_apply_new[i] <- as.character(SuoXie$yquancheng[suoxie_low %in% college_low[i]]) 
+  } else {
+    college_apply_new[i] <- descriptive$college_apply[i]
+  }
+}
+descriptive$College_apply_new <- college_apply_new        # 统一学校名称后的新变量
+
+## 找出10大热门学
+
+(top10_college_apply <- names(sort(table(descriptive$College_apply_new), decreasing = T)[c(1:10)]))
+```
+
+找到10所热门学校后，下一步探究这些学校的录取情况。为简化后续分析，删掉所有录取结果为 WaitingList 的样本，只保留15908条数据。
+
+绘制录取结果的堆积条形图，此处使用学校名称缩写以便图形展示。
+
+```{r}
+## 为简化后续分析，删掉录取结果为 WaitingList 的样本
+descriptive <- descriptive[-which(descriptive$offertype == "WaitingList"),]
+# 例子
+# example <- data.frame(a = 1:5, b = 6:10, c = 11:15)
+# example[-c(2, 3), -2]
+# descriptive <- descriptive[descriptive$offertype != "WaitingList",]
+
+## 统计热门学校录取情况
+descriptive_top10 <- descriptive[descriptive$College_apply_new %in% top10_college_apply, ]
+Top10_college_apply <- as.data.frame(table(descriptive_top10$College_apply_new,
+                                           descriptive_top10$offertype))
+colnames(Top10_college_apply) <- c("college", "申请结果", "number")   # 修改列名
+
+## 缩写学校名称，以便图形展示
+Top10_college_apply$college <- factor(Top10_college_apply$college, 
+                                      levels = top10_college_apply, 
+                                      labels = c("CMU", "UC", "USC", "Columbia", "UPenn"
+                                              , "UIUC", "NEU", "UMich", "Cornell", "TAMU"))
+
+
+## 热门学校申请人数条形图
+(barplot1 <- ggplot(Top10_college_apply) +
+    geom_bar(aes(x = college, y = number, fill = 申请结果), 
+             show.legend = T, stat = 'identity', position = 'stack', ) + 
+    labs(x = "", y = "\n申请人数", title = "\nTOP10 热门学校申请人数") +
+    scale_fill_manual("申请结果", values = c("grey", "gold")) +    # 按照申请结果填色 
+    theme(axis.text.x = element_text(angle = 30, hjust = 0.5)) +
+    plot_theme)
+
+```
+
+#### 申请专业
+
+```{r}
+## 统计热门专业申请情况
+major_ap_top <- as.data.frame(sort(table(descriptive$major_apply),
+                                   decreasing = T)[c(1:7, 9:11)])  # 统计申请专业
+descriptive_top10_major <- descriptive[descriptive$major_apply %in% major_ap_top$Var1, ]
+Top10_major_apply <- as.data.frame(table(descriptive_top10_major$major_apply,
+                                         descriptive_top10_major$type))
+colnames(Top10_major_apply) <- c("major", "type", "number")   # 修改列名
+
+## 缩写学校名称，以便图形展示
+Top10_major_apply$major <- factor(Top10_major_apply$major, 
+                                      levels = major_ap_top$Var1, 
+                                      labels = c("计算机科学", "电子工程", "统计/生统", "机械工程", "信息系统管理", "软件工程","材料", "工业工程与运筹学", "金融", "土木工程"))
+
+
+## 热门专业申请人数条形图
+(barplot6 <- ggplot(Top10_major_apply, aes(x = major, y = number, fill = type)) +
+    geom_bar(show.legend = T, stat = 'identity',position = 'stack', ) + 
+    labs(x = "", y = "\n申请人数", title = "\nTOP10 热门专业申请人数") +
+    scale_fill_manual("申请结果", values = c("grey", "gold", "skyblue")) +    # 按照申请结果填色 
+    theme(axis.text.x = element_text(angle = 30, hjust = 0.8)) +
+    plot_theme)
+
+```
+
+#### 申请成绩
+
+- GPA
+
+GPA（标准化考试成绩）是申请的关键之一。用变量gpa除以分制变量gpa_measure，再乘以4.0，可以将GPA标准化为四分制，得到新变量Standardgap并入原数据。考虑到不同排名的学校对学生成绩的要求差异，对申请学校进行排名划分。读入“QS大学排名前百（美国）.txt”，数据集前19所学校是世界前五十名的美国名校，据此将所有申请学校划分为”Top50”和”Others”两类，得到因子型的新变量CollegeRankTop50并入原数据。
+
+接着，考查学业成绩Standardgap和学校排名CollegeRankTop50对录取结果的影响。绘制成绩与申请结果箱线图，并谈谈你的发现。只画出Standardgap>2.0的样本。
+
+最后，将成绩划分为”<=3.4”, “3.4-3.55”, “3.55-3.7”, “>3.7”四类，得到新变量gpa_dis并入原数据。
+
+```{r}
+## 按学校名称匹配大学排名
+universities <- read.table("QS大学排名前百（美国）.txt",header = F, sep="\n")$V1     # 读入QS世界大学排名
+top50university <- NULL   # 变量初始化
+for(i in 1:dim(descriptive)[1]){                      
+  top50university[i] <- descriptive$College_apply_new[i] %in% universities[1:19]  # 共19所美国名校进入世界前五十名
+}
+
+## 整理变量
+collegerank <- rep("Others",dim(descriptive)[1])     
+collegerank[top50university] <- "Top50"                      # 大学排名前50
+descriptive$CollegeRankTop50 <- collegerank                  # 并入原数据
+
+## gpa标准化
+descriptive$Standardgap <- (descriptive$gpa/descriptive$gpa_measure)*4      # 将gpa统一整理为4分制
+gpa_offertype <- descriptive[, c("Standardgap", "offertype", "CollegeRankTop50")]  
+gpa_offertype$offertype <- factor(gpa_offertype$offertype, levels = c("Admitted", "Rejected"),
+                                 # labels = c("录取","被拒"),
+                                 labels = c("Admitted", "Rejected"))                 #  调整因子水平
+gpa_offertype$CollegeRankTop50 <- factor(gpa_offertype$CollegeRankTop50, levels = c("Top50","Others"))
+
+
+
+## 画图
+boxplot1 <- ggplot(gpa_offertype, aes(x = factor(CollegeRankTop50), y = Standardgap, fill = factor(offertype))) +
+  geom_boxplot(show.legend = T, varwidth = T) +
+  scale_fill_manual("申请结果", values = c("grey", "gold")) +    # 按照申请结果填色 
+  scale_y_continuous(limits = c(2, 4),breaks = seq(2, 4, by = 0.2))+     # 不考虑gpa<2.0的样本
+  labs(x = "申请学校的世界排名", y = "GPA", title = "成绩与申请结果") +
+  plot_theme
+boxplot1
+```
+
+结论：申请 Top50 学校时，录取的学生平均GPA（中位数）较高。申请其他学校时，GPA差异不明显。而从波动程度来看，无论是申请Top50还是其他学校，录取同学的GPA的差异都比未录取的GPA差异大，说明高GPA不一定是录取的必要因素。
+
+```{r}
+## 成绩分段
+descriptive$gpa_dis <- cut(descriptive$Standardgap, breaks = c(0, 3.4, 3.55, 3.7, Inf),
+                           labels = c("<=3.4", "3.4~3.55", "3.55~3.7", ">3.7"))
+```
+
+- TOFEL
+
+托福成绩也是申请时至关重要的一环。将变量toefl转化为数值变量，随后划分为”<=98”, “98-102”, “102-106”,“>106”四个分数段，得到因子型的新变量toefl_dis并入数据。计算不同排名的学校在各分数段的录取率，绘制复式条形图。注意标注出录取率百分数，并添加一条平均录取率作为参考线。从图中你能得到什么结论？
+
+
+```{r}
+## 整理托福成绩
+descriptive$toefl <- as.numeric(descriptive$toefl)    # 将托福成绩信息变为数值型
+descriptive$toefl_dis <- cut(descriptive$toefl, breaks = c(0, 98, 102, 106, Inf),
+                             labels = c("<=98", "98~102", "102~106", ">106"))
+
+## 计算录取率
+ifadmitted <- ifelse(descriptive$offertype == "Admitted",1,0)
+admittedPct <- aggregate(ifadmitted, list(descriptive$toefl_dis, descriptive$CollegeRankTop50), mean)
+colnames(admittedPct) <- c("TOEFL","学校排名","admittedpct")
+admittedPct$学校排名 <- factor(admittedPct$学校排名,levels = c("Top50","Others"))
+
+### 画图
+(barplot2 <- ggplot(admittedPct, aes(TOEFL, admittedpct, fill = 学校排名)) + 
+  geom_bar(stat='identity', position='dodge') +
+  scale_fill_manual("学校排名", values = c("grey", "gold")) +    # 按照申请结果填色 
+  labs(x="", y="", title="\n不同托福成绩的平均录取率") +
+  # geom_text(label = paste(round(admittedPct[order(admittedPct$TOEFL), 3], 2)*100, "%", sep=''),
+  geom_text(label = paste(round(admittedPct$admittedpct, 2)*100, "%", sep=''),
+            colour = "black", position = position_dodge(1), size = 3, vjust = - 0.8)  +
+  geom_hline(aes(yintercept = mean(ifadmitted)), col = "orange", lwd = 1)+
+  geom_text(label = paste(round(mean(ifadmitted), 2)*100, "%", sep=''), 
+            colour = "orange",x = 5.4, y = 0.7, size = 5.7, vjust =  - 0.5) + 
+  plot_theme)
+```
+
+- GRE
+
+```{r}
+## 整理GRE
+descriptive$gre_total <- as.numeric(descriptive$gre_total)    # 将托福成绩信息变为数值型
+# cut函数左开右闭
+descriptive$gre_dis <- cut(descriptive$gre_total, breaks = c(0, 315, 320, 325, 330, Inf),
+                             labels = c("<=315", "315~320", "320~325", "325~330", ">330"))
+
+## 计算录取率
+ifadmitted <- ifelse(descriptive$offertype == "Admitted", 1, 0)
+admittedPct <- aggregate(ifadmitted, list(descriptive$gre_dis), mean)
+colnames(admittedPct) <- c("GRE","admittedpct")
+
+### 画图
+(barplot7 <- ggplot(admittedPct, aes(GRE, admittedpct)) + 
+  geom_bar(stat='identity',position='dodge', fill = "gold") +
+  # scale_fill_manual("学校排名", values = c("grey", "gold")) +    # 按照申请结果填色 
+  labs(x="", y="", title="\n不同GRE成绩的平均录取率") +
+  geom_text(label = paste(round(admittedPct$admittedpct, 2)*100, "%", sep=''),
+            colour = "black", position = position_dodge(1), size = 3, vjust = - 0.8)  +
+  geom_hline(aes(yintercept = mean(ifadmitted)), col = "orange", lwd = 1)+
+  geom_text(label = paste(round(mean(ifadmitted), 2)*100, "%", sep=''), 
+            colour = "orange",x = 5.4, y = 0.7, size = 5.7, vjust =  - 0.5) + 
+  plot_theme)
+```
+
+#### 申请学位类型
+
+```{r}
+## 绘制饼状图
+(piechart2 <- ggplot(descriptive, aes(x = factor(1), fill = factor(type))) +
+    geom_bar(position = "fill", width = 1) +
+    scale_fill_manual("申请类型", values = c("gold","skyblue","grey")) +
+    coord_polar(theta = "y") +
+    labs(x = "", y = "", title = "\n申请类型") +
+    plot_theme_pie)
+```
+
+申请博士与硕士需要做哪些准备呢？我们来探究硬件条件对于不同学位（type）申请的影响。硬件条件共包括6个变量：“research”、“paper”、“first”、“sci”、“rl”、“intern”和”exchange”，依次代表科研、论文、一作、 SCI论文、牛推、实习和交换。对这些变量取绝对值后，得到6个0-1变量，0代表不具备某种硬件条件，反之为1。
+
+下面，绘制出硬件条件与申请学位的矩阵图。矩阵的每个元素代表对应学位的所有申请者中，提到自己具备对应硬件条件的人数比例。以（1,1）元素为例，表示硕士申请者中，提到自己有过交换出国经历的比例为2.8%。注意：利用R包data.table和reshape能够简化矩阵计算；横纵坐标各水平的先后顺序与下图保持一致。从图中你能得到什么结论？
+
+```{r}
+# library(reshape)
+## 预处理
+descriptive$first <- abs(descriptive$first)
+descriptive$sci <- abs(descriptive$sci)
+
+## 录取情况与硬件条件
+extra_offertype <- descriptive[, c("rl", "intern", "research", "paper",
+                                   "first", "sci", "exchange", "type")]
+tab1 <- table(extra_offertype$type) 
+extra_offertype <- melt(extra_offertype, id = "type")      # 短表变长表
+count <- subset(extra_offertype, extra_offertype$value == 1)  
+
+tab2 <- table(count$type, count$variable)                  # 申请硕博拥有某硬件条件的情况
+count_plot <- melt(rbind(tab2[1, ]/tab1[1], tab2[2, ]/tab1[2],  tab2[3, ]/tab1[3]))  # 学位×硬件条件
+colnames(count_plot)[1:2] <- c("Var1", "Var2")
+count_plot$Var1 <- factor(count_plot$Var1, levels = c(1, 2, 3),        # 调整变量因子水平
+                       labels = c("MS", "PhD", "混合"))
+count_plot$Var2 <- factor(count_plot$Var2, levels = c("research","paper","first",
+                                                  "sci","rl","intern","exchange"),
+                           labels = c("科研", "论文", "一作", "SCI论文", "牛推", "实习", "交换"))
+```
+
+
+
+```{r}
+## 绘制硬件条件与申请学位的热力图
+(matrix1 <- ggplot(count_plot, aes(x = Var1, y = Var2, fill = value)) + # 画图
+    geom_tile(show.legend = F) +    
+    geom_text(label = paste(round(count_plot$value, 3)*100, "%", sep = ''),
+              color = "black", family = "Hei", size = 4.5) +
+    scale_fill_gradient("count", low = "white", high = "lightCoral") +
+    labs(x = "申请学位", y = "硬件条件", title = "") + plot_theme)
+```
+
+#### 申请专业
+
+接着，我们看看热门专业在申请出国留学时的“难度系数”。统计各申请专业（major_apply）出现次数，找出十大热门专业：“CS”,EE“,Stat/Biostat”、“ME”、“MIS”、“CE”、“Material”、“IEOR”、“MFE/Fin/FinMath”和“CivilEng”，依次对应计算机科学电子工程、统计/生统、机械工程、信息系统管理、软件工程、材料、工业工程与运筹学、金融和土木工程。构造新变量 major_apply_new 并入数据，该变量保留10大热门专业，将其余专业归入类型“Other”。随后，计算十大热门专业的录取和拒绝人数，绘制堆积条形图并谈谈你的观点。
+
+```{r}
+## 计算录取率
+ifadmitted <- ifelse(descriptive$offertype == "Admitted",1,0)
+admittedPct <- aggregate(ifadmitted,list(descriptive$major_apply),mean)  
+colnames(admittedPct) <- c("major","admittedpct")
+
+## 选出热门专业
+major_ap_top <- as.data.frame(sort(table(descriptive$major_apply),
+                                   decreasing = T)[c(1:7, 9:11)])  # 统计申请专业
+descriptive$major_apply_new <- ifelse(descriptive$major_apply %in% as.character(major_ap_top$Var1), 
+                                      descriptive$major_apply, "Other")   # 新变量将冷门专业合并
+
+colnames(major_ap_top) <- c("major","number")                      # 修改列名
+top10mj_ap_Pct <- admittedPct[is.element(admittedPct$major, major_ap_top$major), ]  
+top10mj_ap_Pct <- top10mj_ap_Pct[order(top10mj_ap_Pct$admittedpct, decreasing = T), ]
+top10major <- merge(major_ap_top, top10mj_ap_Pct, by = "major",sort = F)  # 合并专业出现次数和录取率
+top10major$major<- c("计算机科学", "电子工程", "统计/生统", "机械工程", "信息系统管理", "软件工程",
+                     "材料", "工业工程与运筹学", "金融", "土木工程")
+top10major_ <- data.frame(major = rep(top10major$major,2),         # 构造data.frame以便画图
+                          number = c(top10major$number * top10major$admittedpct,
+                                     top10major$number * (1-top10major$admittedpct)),
+                          申请结果 = c(rep("录取", 10), rep("拒绝", 10)))
+## 画图
+(barplot3 <- ggplot(top10major_, aes(x = major, y = number, fill = 申请结果)) +
+    geom_bar(show.legend = T, stat = 'identity', position = 'stack') + 
+    labs(x = "", y = "\n人数", title = "\nTOP10 申请专业录取率") +
+    scale_x_discrete(expand=c(0, 0), limits = top10major_$major[1:10]) +
+    scale_fill_manual("申请结果", values = c("grey", "gold")) +    # 按照申请结果填色 
+    theme(axis.text.x = element_text(angle = 30, hjust = 0.8)) +
+    plot_theme)
+```
+
+结论：计算机科学、统计/生统等专业录取率较低，信息系统管理、土木工程等专业录取率较高。热门专业竞争激烈，录取率低。
+
+#### 学校-专业录取率
+
+考虑到各学校各专业之间录取难度的差异，我们尝试构造变量“学校-专业录取率”（`admittedpct_major_college`），以帮助预测申请结果。首先，删去包括缺失项的数据，找出10大热门申请专业和申请人数最多的100所大学。删去非热门100所学校的申请数据，将剩余的10298条数据按照4：1划分训练集和测试集。注，此处设置随机数种子为1。
+
+接下来，我们利用训练集对百所学校各专业录取率进行估计。**在训练集上**，对于每一所学校，若某专业的申请次数不低于10次，并且属于10大热门申请专业，直接计算其录取率，而该学校的其他专业合并计算录取率。由此，得到训练集和测试集的新变量 `admittedpct_major_college`。
+
+```{r}
+library(dplyr)
+
+descriptive <- na.omit(descriptive)  # 删去缺失值，剩余12442条记录
+## 抽取训练集
+set.seed(123)    # 随机数种子
+nsample <- sample(x = dim(descriptive)[1], size = dim(descriptive)[1]/5, replace = F)
+descriptive_train <- descriptive[-nsample, ]         # 划分出训练集，9954条记录
+
+
+## 以下操作基于训练集
+## 首先选出10个热门申请专业，100所热门学校
+top10majorapply <- names(sort(table(descriptive_train$major_apply), decreasing = T)[c(1:7, 9:11)])  # 第8为原始Other
+
+Top100college <- names(sort(table(descriptive_train$College_apply_new), decreasing = T)[1:100])    # 热门百所大学
+descriptive$College_apply_new[which(!descriptive$College_apply_new %in% Top100college)] = "Others"  # 其余大学命名为 Others
+descriptive_train <- descriptive[-nsample, ]         # 划分出训练集，9954条记录
+
+Top100college <- c(Top100college, "Others")
+
+## 预处理：估计训练集录取率
+admittedPct = NULL
+LengthCollege = NULL
+for(i in 1:length(Top100college)){  # 对每一所学校（Top100+Others）
+  college1 <- descriptive_train[descriptive_train$College_apply_new == Top100college[i], 
+                                  c("major_apply", "offertype")] 
+  # temp1 <- sort(table(college1$major_apply), decreasing = T) 
+  # temp1 <- names(temp1[temp1 >= 10])                          # 统计各项出现次数
+  # majors1 <- ifelse((college1$major_apply %in% top10majorapply) & (college1$major_apply %in% temp1),
+                      # college1$major_apply, "Other")          # 出现次数较少的项合并计算录取率
+  majors1 <- ifelse((college1$major_apply %in% top10majorapply), college1$major_apply, "Other")
+  ifadmitted1 <-  ifelse(college1$offertype == "Admitted", 1, 0)
+  admittedPct1 <- aggregate(ifadmitted1, list(majors1),  function(x){mean(x, na.rm = T)} ) # 计算录取率
+  if (sum(is.na(admittedPct1)) > 0) {
+    cat(Top100college[i], "\t", i, "\n", admittedPct1, "\n")
+  }
+  LengthCollege[i] <- dim(admittedPct1)[1]                    # 记录出现次数
+  colnames(admittedPct1) <- c("major_apply_new", "admittedpct_major_college")
+  admittedPct <- rbind(admittedPct, admittedPct1)       
+}
+admittedPct$College_apply_new <- as.factor(unlist(sapply(1:length(Top100college),    # 得到估计的各学校专业录取率
+                                                              function(x){rep(Top100college[x], LengthCollege[x])})))
+
+
+## 得到新变量：学校-专业录取率
+descriptive <- merge(descriptive, admittedPct, by = c("College_apply_new", "major_apply_new"), all.x = T)
+descriptive <- descriptive[order(descriptive[, "index_origin"]),]   # 保证数据顺序不变
+
+## 测试集中不属于训练集分类中的情况，用其对应的申请学校平均录取率代替
+## 计算平均录取率
+descriptive_train <- descriptive[-nsample, ]         # 划分出训练集，9954条记录
+mean_admitpct_bycollege <- descriptive_train %>% group_by(College_apply_new) %>% summarise(mean_admitpct = mean(admittedpct_major_college))
+na_college <- unique(descriptive$College_apply_new[which(is.na(descriptive$admittedpct_major_college))])
+mean_admitpct_bycollege <- descriptive_train[which(descriptive_train$College_apply_new %in% na_college),] %>% group_by(College_apply_new) %>% summarise(mean_admitpct = mean(admittedpct_major_college))
+colnames(mean_admitpct_bycollege)[2] <- "admittedpct_major_college"
+
+
+descriptive_sub <- descriptive[which(is.na(descriptive$admittedpct_major_college)),]  # 选择有空值的数据
+descriptive_sub$admittedpct_major_college = NULL
+descriptive_sub <- merge(descriptive_sub, mean_admitpct_bycollege, by = "College_apply_new", all.x = T)  # 与每个学校的平均录取率合并
+descriptive[which(is.na(descriptive$admittedpct_major_college)),] <- descriptive_sub  # 替换原始数据中的空值记录
+
+# for(i in 1:length(Top100college)){
+#   admittedpct1 <- admittedPct[admittedPct$Top100_college_apply %in% Top100college[i] & admittedPct$major_apply=="Others", ]
+#   if(dim(admittedpct1)[1]!=0){   # 该专业在该学校不属于“冷门专业”（即属于Others）时
+#     admittedpct1 <- admittedpct1$admittedpct_major_college
+#     descriptive$admittedpct_major_college[(descriptive$Top100_college_apply %in% Top100college[i]) &
+#                                              (is.na(descriptive$admittedpct_major_college))] <- admittedpct1
+#   }
+# }
+
+## 录取率
+Admittedpct_major_college <- data.frame(admittedPct = descriptive$admittedpct_major_college)
+(histogram1 <- ggplot(Admittedpct_major_college, aes(admittedPct)) +                              
+  geom_histogram(bins =15, fill = "gold") +  
+  labs(y ="学校数量", x = "录取率", title = "学校-专业录取率分布直方图") + 
+  plot_theme)
+```
+
+```{r}
+## 只看学校的录取率
+mean_admitpct_bycollege_all <- descriptive_train %>% group_by(College_apply_new) %>% summarise(mean_admitpct = mean(admittedpct_major_college))
+Admittedpct_college<- data.frame(admittedPct = mean_admitpct_bycollege_all$mean_admitpct)
+(histogram1 <- ggplot(Admittedpct_college, aes(admittedPct)) +                              
+  geom_histogram(bins =15, fill = "gold") +  
+  labs(y ="学校数量", x = "录取率", title = "学校录取率分布直方图") + 
+  plot_theme)
+```
+
+
+
+## 5. 建模分析
+
+### 构造逻辑回归模型
+
+```{r}
+set.seed(123)    # 随机数种子
+nsample <- sample(x = dim(descriptive)[1], size = dim(descriptive)[1]/5, replace = F)
+descriptive_train <- descriptive[-nsample, ]         # 划分出训练集，9954条记录
+descriptive_test <- descriptive[nsample, ]
+```
+
+
+最后，我们将申请结果`offertype`作为因变量（录取=1，被拒=0），对数据进行训练集与测试集的划分（0.8: 0.2），在训练集上建立逻辑回归模型
+
+以上述方程在训练集数据上建立逻辑回归模型，对模型进行变量选择（使用AIC准则），并对模型结果给出合理的解读。
+
+```{r}
+## [1] "offertype ~ season + type + cross + rl + intern + research + paper + first + sci + exchange + CollegeRankTop50 + gpa_dis + toefl_dis + major_apply_new + admittedpct_major_college"
+## 建立逻辑回归模型
+myglm0 <- glm(formula = as.factor(offertype) ~ season + type + cross + rl + intern + research + paper + first + sci + exchange + CollegeRankTop50 + gpa_dis + toefl_dis + major_apply_new + admittedpct_major_college, family = binomial(), data = descriptive_train)  # 逻辑回归
+myglm <- step(myglm0, trace = F)     # AIC准则逐步回归
+summary(myglm)    # 查看回归结果
+```
+
+### 逐步回归与ROC曲线
+
+
+经过AIC准则选择后，模型留下了对申请结果影响显著的变量。根据模型形式的理解，逻辑回归模型的系数体现了因变量分别取1和0的可能性大小。例如，对于申请类型而言，其基准组为只申请硕士（MS），在控制其他变量不变的情况下，申请PhD的同学被录取的可能性比只申请硕士的同学录取可能性大；同样地，控制其他变量不变的情况下，有一作论文发表、海外交流经历的同学比没有相关经验的同学更易获得录取；从GPA和托福成绩这两个硬性指标来看，随着成绩区间档位的上升，获得录取的可能性增大，因此提高提高英语考试成绩是申请季稳中求胜的“法宝”。
+
+用逐步回归后的模型对测试集的申请结果进行预测，并利用R包pROC绘制出ROC曲线图，根据曲线对模型进行评价。
+
+```{r}
+library(pROC)
+library(caret)
+# 进行预测并绘制ROC曲线
+pred <- predict(myglm, descriptive_test, type="response")
+roc_glm <- roc(descriptive_test$offertype, pred)
+# 绘制ROC曲线
+par(family='STXihei')
+plot(roc_glm, col = "dodgerblue", print.auc=TRUE,
+         auc.polygon=TRUE, auc.polygon.col="#f6f6f6", main = "预测ROC曲线", xlim = c(1,0),
+     xlab = "特异度",ylab = "敏感度")  
+```
+
+根据曲线的结果，AUC值（即ROC曲线下的面积）为0.702，说明该模型对数据的预测效果较好。
+
+```{r}
+## 打印混淆矩阵
+#convert defaults from "Yes" and "No" to 1's and 0's
+descriptive_test$offertype_1 <- ifelse(as.logical(descriptive_test$offertype == "Admitted"), 1, 0) %>% as.factor()
+pred <- ifelse(pred > 0.6, 1, 0)  %>% as.factor()
+confusionMatrix(descriptive_test$offertype_1, pred)  # 混淆矩阵
+```
+

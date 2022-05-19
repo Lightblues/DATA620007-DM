@@ -1,0 +1,163 @@
+---
+title: "朴素贝叶斯：基于商品名称的自动化分类"
+author: "韩司仪 20210980106@fudan.edu.cn"
+date: "2022年4月11日"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+---
+
+<style type="text/css">
+h1.title{
+  font-size: 38px;
+  color: DarkRed;
+  text-align: center;
+}
+h4.author{
+  font-size: 18px;
+  color: DarkRed;
+  text-align: center;
+}
+h4.date {
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  text-align: center;
+}
+
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = TRUE, fig.align = "center")
+```
+
+
+## 准备工作
+```{r}
+# 清除工作环境
+cat("\014");rm(list = ls())
+# 设置工作目录
+setwd("/Users/hansiyi/Fudan/Seminar/TA/Data Mining/Coding/NB")
+
+# 注释快捷键，ctrl/command+shift+c
+# library(gdtools)
+# ?sys_fonts # 列出系统字体。
+# View(sys_fonts())
+# Win10: SimHei、STXihei
+```
+
+## 1. 数据介绍         
+商品分类，顾名思义就是根据商品的性质、特点将其划分到合适的类别中。在现代商业社会，商品分类是商品流通的基础步骤之一。目前的商品分类普遍存在三大困难：数据大、信息少、人工繁。本案例针对上述商品分类面对的困难，提出了一套基于商品名称的商品自动化分类体系，它可以完全利用商品名称信息，以自动化的分类技术大批量高效率的对海量商品进行分类处理，从而延伸商品价值。
+         
+
+## 2. 读取数据
+```{r}
+# tips: option/alt+减号可以打出 <- 
+#       ctrl/command + enter可以运行光标所在行的代码/选定的代码段
+#       R中 true和false可以用TRUE/FALSE or T/F两种方式表示
+#       ctrl+shift+m可以打出管道函数 %>% 
+
+# 读入catalog数据
+# catalog <- read.csv('catalogs.csv', fileEncoding = "utf-8")
+# library(data.table)
+# catalog <- fread('catalogs.csv')
+library(readxl)
+catalog <- read_excel("catalogs.xlsx")
+# 查看数据
+head(catalog)
+```
+
+## 3. 描述分析       
+
+数据中包含两个一级品类，即“生鲜”和“食品饮料、保健食品”。我们使用饼状图对每个一级品类生鲜下的各个二级品类的分布情况进行描述分析。
+```{r}
+library(plyr)
+# 聚合数据
+df1 <- ddply(catalog[catalog$first=="生鲜",], .(second), nrow)
+# help(ddply)
+df1 <- df1[order(df1$V1, decreasing = TRUE),]
+# 获取标签
+label <- as.vector(df1$second)   
+label <- paste(label, "(", round(df1$V1/sum(df1$V1)*100, 2), "%)", sep = "") 
+# 使用R自带的饼图函数
+pie(df1$V1, labels = label, main = "生鲜类产品二级分类饼图", family = "Hei")
+```
+
+               
+```{r}
+library(jiebaR)
+# 初始化分词工具
+seg <- worker(bylines = T)
+# 读入自定义词典
+new_words <- read.table('userdict.dat', header = F, stringsAsFactors = F)
+# 将词典加入分词引擎
+new_user_word(seg, new_words$V1)
+
+# 分词, 注意分词结果是 list
+catalog$name <- as.character(catalog$name)
+cata_seg <- segment(catalog$name, seg)
+# 提取出“生鲜”
+food_and_drink_seg <- cata_seg[which(catalog$first == "生鲜")]
+# 计算不同商品名称包含的词数
+word_lengths <- sapply(food_and_drink_seg, length)
+hist(word_lengths)
+```
+
+## 正则表达式
+* \\\\:转义符          
+* ^:匹配输入字符串的开始位置
+* $:匹配输入字符串的结束位置
+* *:匹配前面的子表达式零次或多次
+* +:匹配前面的子表示式一次或多次
+* ?:匹配前面的子表达式零次或一次
+* .:匹配除$\n$以外的任何单个字符
+* x|y:匹配x或y
+* \[xyz]:字符集和，匹配集合中所包含的任意字符
+* \[^xyz]:负字符集合，匹配非集合中的任意字符
+* \[a-z]:字符范围，匹配任意小写字母
+* \[^a-z]:负值字符范围
+* \[A-Z]:字符范围，匹配任意大写字母
+* \[0-9]:字符范围，匹配任意数字
+* $[\u4e00-\u9fa5]$:字符范围
+* \\\\s:匹配任意空白字符，包括空格、制表符、换页符等等
+
+
+```{r}
+# 匹配包含某些关键词的字符串
+s0 <- "have a nice day, 666"
+grepl(".+nice.+", s0)
+grepl(".+666.+", s0) # F
+
+# 匹配全是英文字母组成的字符串
+s1 <- "asfGYJKhkgdnabuqwKHg"
+grepl("^([a-z]|[A-Z])+$", s1)
+
+# 匹配全是数字组成的字符串
+s2 <- "34241341"
+grepl("^[0-9]+$", s2)
+
+# 匹配中文
+s3 <- "数据abc666挖掘"
+grepl('^[\u4e00-\u9fa5]+[a-z|A-Z]+[0-9]+[\u4e00-\u9fa5]+$', s3)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

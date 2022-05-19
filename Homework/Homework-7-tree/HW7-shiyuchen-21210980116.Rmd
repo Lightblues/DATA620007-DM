@@ -1,0 +1,253 @@
+---
+title: "HW7-shiyuchen-21210980116"
+author: "Shi Yuchen"
+date: "5/2/2022"
+output: html_document
+---
+
+# 
+
+数据说明：
+大型开放式网络课堂，即MOOC（Massive open online courses）是最近几年迅速升温的一个领域，众多以在线课程为核心的互联网公司纷纷涌现或取得蓬勃发展。那么在线网络课程的收入主要受到哪些因素的影响呢？是课程内容，人数规模，还是课时安排？为了探索这一问题，我们选取了国内某在线网络课程平台在2016年8月16号这一天的全部10222个课程的数据进行分析。数据包含两个csv文件：“课程列表.csv”，“课程信息.csv”。
+
+课程列表字段解释如下：
+课程小类：s.ctg; 课程大类：b.ctg; 网址：url; 名称：course.name; 老师名字：teacher; 人数：size; 标价：real.price; 原价：orig.price; 收入：revenue;
+课程信息字段解释如下：
+课程网址：url; 评分：score; 适合人群：people; 课程简介：intro; 课时安排：detail;
+
+分析任务：
+1.	读入课程列表和课程信息两个数据集，分别命名为a和b，并用summary函数展示数据。
+
+```{r}
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+library(readr)  # read_csv
+```
+
+```{r}
+a <- read_csv("课程列表.csv")
+b <- read_csv("课程信息.csv")
+```
+```{r}
+summary(a)
+```
+
+```{r}
+summary(b)
+```
+
+
+2.	将a、b两个数据集按照url进行合并，合并后的数据集命名为a，在合并时首先注意检查两个数据集中是否有重复观测，如果有，需要先删除重复观测。
+
+```{r}
+# 删除重复观测
+# # 10219 条记录中, 有重复
+# c(length(unique(a$url)), dim(a))
+# # 10221 有重复
+# c(length(unique(b$url)), dim(b))
+
+duplicated(a$url) %>% sum()
+
+a <- a[!duplicated(a$url), ]
+b <- b[!duplicated(b$url), ]
+
+# 按照url进行合并
+a <- left_join(a, b, by="url")
+```
+
+
+3.	首先对课程名称进行分词，找出前20个高频词，展示一个数据框，其中第一列代表词根，第二列代表词频
+
+```{r}
+library(jiebaRD)
+library(jiebaR)         # 加载包
+
+cutter <-  jiebaR::worker()  # 设置分词引擎
+words.seg <-  jiebaR::segment(a$course.name, cutter) # 对文本进行分词处理
+words.table <-  plyr::count(words.seg)
+words.table.sorted <- words.table[order(words.table$freq, decreasing = T),]
+head(words.table.sorted)
+```
+
+
+4.	在任务3的基础上，统计课程名称中包含了前20个高频词中的几个并作为一个新变量，用freq.count表示并用summary函数展示freq.count变量的分布情况
+
+```{r}
+freq.words.20 <- words.table.sorted$x[1:20]
+# 生成正则表达式
+p <- freq.words.20[1]
+for (w in freq.words.20[2:19]) {
+  p <- paste(p, w, sep="|")
+}
+p # "的|基础|教程|与|课程|入门|英语|考试|视频教程|考研|如何|之|实战|管理|技巧|你|年|精讲|设计"
+paste(freq.words.20, sep="|")
+a$freq.count <- str_count(a$course.name, p)
+summary(a$freq.count)
+```
+
+5.	提取【课程信息】这个变量里的课时信息，提取之后，计算每个课程总共有多少课时，将其命名为一个新变量 keshi，用summary函数展示该变量
+
+```{r}
+# 信息包括在「课时30」这样的格式中
+keshi.list <- str_extract_all(a$detail, "课时[0-9]+")
+get.keshi <- function(keshi.words) {
+  if (length(keshi.words) > 0){
+    str_extract(keshi.words, "[0-9]+") %>% as.integer() %>% max()
+  } else {
+    # 对于没有抽取到的, 赋值 NA
+    NA
+  }
+}
+a$keshi <- sapply(keshi.list, get.keshi)
+summary(a$keshi)
+```
+
+
+6.	将任务5新生成的keshi变量拼接到a数据集中，筛选并保留revenue大于0的样本用于后续建模任务
+
+```{r}
+# 6068
+data <- a[a$revenue>0, ]
+dim(data)
+```
+
+
+7.	设置种子2022，按照7:3划分训练集和测试集，以对数收入做因变量Y，以real.price,score,freq.count,keshi为自变量X（对 real.price，keshi 做必要的对数变换）构造对数线性模型并计算模型在测试集上的均方误差
+
+```{r}
+# Y
+data$y <- log(data$revenue)
+
+data$score <- as.numeric(data$score)
+data[is.na(data$score), "score"] <- 0
+data$keshi <- as.numeric(data$keshi)
+data[is.na(data$keshi), "keshi"] <- as.integer(mean(data$keshi, na.rm=T))
+data$real.price.log <- log(data$real.price)
+summary(data)
+```
+
+
+```{r}
+set.seed(2022)
+idx <- sample(nrow(data), nrow(data)*.7, replace = FALSE)
+d.train <- data[idx,]
+d.test <- data[-idx,]
+```
+
+```{r}
+calc.rmsa <- function(pred, gt) {
+  sqrt(mean((pred-gt)^2, na.rm=T))
+}
+```
+
+```{r}
+timestart<-Sys.time()
+# 将价格做 log 变换后, rmsa 从 2.055 降低为 1.632
+model.lm <- lm(formula = y~real.price.log+score+freq.count+keshi, data=d.train)
+# summary(model.lm)
+pred.lm <- predict(model.lm, d.test)
+rmsa.lm <- calc.rmsa(pred.lm, d.test$y)
+time.lm <- Sys.time() - timestart
+cat(time.lm, rmsa.lm)
+```
+
+
+8.	使用与任务7相同的训练集和测试集，考虑给出的所有自变量以及任务4和任务5中构造的变量，利用 CART 回归树建模并剪枝，可视化该决策树，最后计算该决策树测试集上的均方误差
+
+```{r}
+library(rpart)
+# 设置 minsplit, maxdepth, cp 前后, rmse 从 1.647 下降为 1.529
+timestart<-Sys.time()
+model.cart <- rpart::rpart(
+  formula=y~real.price.log+score+freq.count+keshi, data=d.train, method="anova",
+  minsplit = 10, maxdepth = 30, cp = 0.001,
+)
+# summary(model.cart)
+# model.cart$variable.importance
+pred.cart <- predict(model.cart, d.test)
+rmse.cart <- calc.rmsa(pred.cart, d.test$y)
+time.cart <- Sys.time() - timestart
+cat(time.cart, rmse.cart)
+```
+
+
+```{r}
+# rpart::printcp(model.cart)
+```
+
+```{r}
+cpmatrix <- printcp(model.cart)
+mincpindex <- which.min(cpmatrix[, "xerror"])
+cponeSE <- cpmatrix[mincpindex, "xerror"] + cpmatrix[mincpindex, "xstd"]
+cpindex <- min(which(cpmatrix[, "xerror"] <= cponeSE))
+cpmatrix[cpindex,1]
+```
+
+```{r}
+model.cart.pruned <- prune(model.cart, cp = cpmatrix[cpindex, "CP"])
+pred.cart.pruned <- predict(model.cart.pruned, d.test)
+rmse.cart.pruned <- calc.rmsa(pred.cart.pruned, d.test$y)
+rmse.cart.pruned
+```
+
+
+```{r}
+# https://datastorm-open.github.io/visNetwork/tree.html
+library(visNetwork)
+visNetwork::visTree(model.cart.pruned, main = "Regresstion Tree", width = "100%")
+```
+
+9.	使用与任务7相同的训练集和测试集，考虑给出的所有自变量以及任务4和任务5中构造的变量，使用 Adaboost 算法建模并计算该决策树测试集上的均方误差
+
+```{r}
+library(gbm)
+timestart<-Sys.time()
+model.ada <- gbm::gbm(
+  formula=y~real.price.log+score+freq.count+keshi, data=d.train, 
+  distribution = "gaussian", 
+  n.trees = 100, interaction.depth = 30, shrinkage = 0.01, bag.fraction = 0.5
+)
+pred.ada <- predict(model.ada, d.test)
+time.ada <- Sys.time() - timestart
+rmsa.ada <- calc.rmsa(pred.ada, d.test$y)
+cat(time.ada, rmsa.ada)
+```
+
+
+10.	使用与任务7相同的训练集和测试集，考虑给出的所有自变量以及任务4和任务5中构造的变量，使用随机森林建模并输出变量重要性，最后计算该决策树测试集上的均方误差
+
+```{r}
+library(randomForest)
+# ?randomForest
+# 随机森林带随机性，因此若要保持结果可复现，需要设置随机数种子
+set.seed(116)
+timestart<-Sys.time()
+model.rf <- randomForest::randomForest(
+  formula=y~real.price.log+score+freq.count+keshi, data=d.train,
+  ntree = 100, importance = T, proximity = T
+)
+# print(model.rf)
+pred.rf <- predict(model.rf, d.test)
+time.rf <- Sys.time() - timestart
+rmsa.rf <- calc.rmsa(pred.rf, d.test$y)
+cat(time.rf, rmsa.rf)
+```
+
+
+
+11.	比较任务7至任务10中四个模型的结果，比较这四个模型各自的运行的时间、在测试集上的均方误差。
+
+```{r}
+cat("time:", time.lm, time.cart, time.ada, time.rf, "\n")
+cat("rmse:", rmsa.lm, rmse.cart.pruned, rmsa.ada, rmsa.rf, "\n")
+```
+
+在上述树模型中, 均设置最大深度为30, 树的数量限制为 100.
+
+- 从运行时间上来看, 在上述配置下, 线性回归和CART速度最快, Adaboost 速度最慢, RF用时最长.
+- 就测试集表现而言, CART和RF的均方误差最小, 线性回归和Adaboost的表现稍差.
+
+

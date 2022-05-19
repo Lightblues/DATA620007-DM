@@ -1,0 +1,236 @@
+---
+title: "HW5-shiyuchen-21210980116"
+author: "Shi Yuchen"
+date: "5/2/2022"
+output: html_document
+---
+
+# 朴素贝叶斯：基于商品名称的自动化分类
+
+数据说明：
+
+商品分类，顾名思义就是根据商品的性质、特点将其划分到合适的类别中。在现代商业社会，商品分类是商品流通的基础步骤之一。目前的商品分类普遍存在三大困难：数据大、信息少、人工繁。本案例针对上述商品分类面对的困难，提出了一套基于商品名称的商品自动化分类体系，它可以完全利用商品名称信息，以自动化的分类技术大批量高效率的对海量商品进行分类处理，从而延伸商品价值。数据集“catalogs.xlsx”中共包含四个字段，分别是商品名称、商品一级品类、二级品类和三级品类。此外，还数据中还提供了一个词典“userdict.dat”供分词时使用。
+
+分析任务：
+
+```{r warning=FALSE}
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(plyr)
+library(stringr)
+library(jiebaR)
+library(ggplot2)
+library(ggpubr)
+library(wordcloud2)
+library(text2vec)
+library(e1071)
+library(naivebayes)
+```
+
+
+1.	读入catalogs.xlsx，并使用head()函数查看数据形式。
+
+```{r}
+catalogs <- read_excel("catalogs.xlsx")
+head(catalogs)
+```
+
+
+2.	使用ggplot函数，分别绘制“生鲜”和“食品饮料、保健食品”两个一级品类下二级品类分布的饼图，并进行解读。
+
+```{r}
+# 用 vector 保存 plots
+plots.list <- vector("list", 2)
+for (i in 1:2) {
+  second.cat <-  c("生鲜", "食品饮料、保健食品")[i]
+  df.second <- catalogs[catalogs$first==second.cat,] %>% group_by(second) %>% dplyr::summarise(count=n())
+  df.second <- df.second[order(df.second$count, decreasing = T), ]
+  # 生成描述文字
+  label <- as.vector(df.second$second)
+  label <- paste0(label, "(", round(df.second$count / sum(df.second$count) * 100, 2), "%)")
+  # 不同于 pie, 需要显式设置为 factor 进行排序
+  df.second$label <- factor(label, levels = label)
+  # 绘图 https://r-graph-gallery.com/piechart-ggplot2.html
+  p <- ggplot(data=df.second, aes(x="", y=`count`, fill=label)) +
+    geom_bar(stat="identity", width=1, color="white") +
+    coord_polar("y", start=0, direction = -1) + # direction: 1, clockwise; -1, anticlockwise
+    labs(y = "", x = "", title=paste0(second.cat, "类产品二级分类饼图")) +
+    # plot_theme +
+    theme(
+      # text = element_text(family = "STXihei"),
+          # 去除 axis
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid  = element_blank())
+  plots.list[[i]] <- p
+}
+# plots.list[[1]]
+```
+
+```{r warning=FALSE}
+# 代码块设置中关闭 ggarrange 中文警告
+ggpubr::ggarrange(plotlist = plots.list)
+# plots.list[[1]]
+```
+分别绘制“生鲜”和“食品饮料、保健食品”两个一级类别下二级类别的分布图, 可以看到, 在「生鲜」类产品中, 水果、蔬菜、海鲜水产的数量高是最多的, 各占了 25%左右, 而在「食品饮料、保健食品」类别中, 数量最多的二级类别为地方特产、茗茶和粮油调味.
+
+3.	进行商品名称的处理，使用jiebaR包中的分词函数对商品名称进行分词处理。为了更精确的分词结果，我们提供了一个自定义词典，即“userdict.dat”，请再自定义撰写一个包含5个停用词的“stop_words.dat”，加载到分词worker中，对全部商品名称进行分词。
+
+```{r}
+library(jiebaR)
+# 初始化分词工具, 设置停用词
+seg <- jiebaR::worker(bylines = T, stop_word = 'stop_words.dat')
+# 读入自定义词典, 加入分词引擎
+new_words <- read.table('userdict.dat', header = F, stringsAsFactors = F)
+jiebaR::new_user_word(seg, new_words$V1)
+# jiebaR::segment(c("我的苏打饼干呢"), seg)
+
+# 分词
+catalogs$name <- as.character(catalogs$name)
+cata_seg <- jiebaR::segment(catalogs$name, seg)
+```
+
+
+4.	基于上一题的分词结果，使用apply族的函数分别计算 “生鲜”和“食品饮料、保健食品”两个类别下，每个商品名称分词后单词的数量，并以此使用ggplot函数绘制两个一级品类商品名称分词后单词数量的直方图。
+
+```{r, warning=F}
+# 用 vector 保存 plots
+plots.list <- vector("list", 2)
+for (i in 1:2) {
+  second.cat <-  c("生鲜", "食品饮料、保健食品")[i]
+  title.cata.words <- cata_seg[catalogs$first==second.cat]
+  # sapply 统计单词数量
+  title.lens <- sapply(title.cata.words, length)
+  
+  df.second <- catalogs[catalogs$first==second.cat, ]
+  df.second$title.lens <- title.lens
+  p <- ggplot(data=df.second, aes(x=title.lens)) +
+    geom_histogram(bins=30) +
+    # scale_y_log10() +
+    labs(y = "", x = "", title=paste0(second.cat, "商品名称词数分布图"))
+  plots.list[[i]] <- p
+}
+ggarrange(plotlist = plots.list)
+```
+
+对于两个类别下的商品名称分词, 绘制词数分布图, 可以看到, 大部分商品的名称词数在 10-20 个词之间.
+
+5.	分别绘制“食品饮料、保健食品”类别下三级品类“牛奶乳品”和“成人奶粉”商品名称分词后的top100高频词的词云图，比较两种品类商品名称的语言特点，并做简单点评。
+
+```{r}
+cata.third <- c("牛奶乳品", "成人奶粉")
+
+plot.wordcloud <- function(cat){
+  words.1 <- cata_seg[catalogs$third==cat]
+  words.1 <- unlist(words.1)
+  words.1 <- gsub("[0-9a-zA-Z]+?","",words.1)  # 去除数字和英文
+  words.table <- plyr::count(words.1)
+  # words.table
+  # 绘制词云
+  library(wordcloud2)
+  wordcloud2::wordcloud2(words.table)
+}
+plot.wordcloud(cata.third[1])
+```
+
+```{r}
+plot.wordcloud(cata.third[2])
+```
+
+分别绘制 “牛奶乳品”和“成人奶粉” 两个三级类别下的商品名称词云, 可以看到, 1) 相较于一般的牛奶乳品类别, 「成人奶粉」类别下的商品名会更多地强调「中老年」「高钙」「营养」等特定的奶粉类别和功效; 2) 在牛奶乳品类别下出现较多的品牌是伊利, 而成人奶粉中出现较多的品牌是雀巢.
+
+6.	对分词结果进行预处理，预处理包括去掉纯数字或者纯字母的组合，去掉低频词（包含该词的商品数量<10）、高频词（在多于75%的商品名称中出现），在去除低频词和高频词时，可以使用函数 pruned_vocab()。最后，保留高频词中的top1000的词语，作为分类器的特征，并建立文档-词频矩阵。在建立文档词频矩阵时，需要用到 text2vec 包中的 create_dtm() 函数。
+
+```{r}
+# 预处理包括去掉纯数字或者纯字母的组合
+func.filter <- function(words) {
+  words[!grepl("[0-9a-zA-Z]+?", words)]
+}
+# cata.filtered <- sapply(cata_seg, gsub, pattern="[0-9a-zA-Z]+?", replacement="")
+cata.filtered <- sapply(cata_seg, func.filter)
+
+it <- text2vec::itoken(cata.filtered)
+
+# 去掉低频词（包含该词的商品数量<10）、高频词（在多于75%的商品名称中出现）
+vocab <- text2vec::create_vocabulary(it)
+pruned.vocab <- prune_vocabulary(
+  vocab,
+  term_count_min=10,
+  doc_proportion_max=.75
+)
+vocab.final <- pruned.vocab[order(pruned.vocab$term_count, decreasing = T),][1:1000,]
+```
+
+```{r}
+# 建立文档-词频矩阵
+vectorizer = text2vec::vocab_vectorizer(vocab.final)
+dtm <- text2vec::create_dtm(it, vectorizer) %>% as.matrix()
+# head(dtm)
+dim(dtm)
+```
+
+其中, `text2vec` 包参见 [here](https://rstudio-pubs-static.s3.amazonaws.com/479612_8cda7868fd31497796121d445ed15db8.html)
+
+
+
+7.	挑选出“食品饮料、保健食品”类的样本，构建朴素贝叶斯分类器。固定随机数种子为 666，按照7:3将这部分样本划分为训练集与测试集两部分。使用 e1071 包中的 naiveBayes() 函数构建朴素贝叶斯分类器，并计算测试集上的预测准确率。
+
+```{r}
+# 转为 0/1 因子
+dtm <- ifelse(dtm>0, 1, 0)
+dtm <- apply(dtm, 2, as.factor)
+
+# dtm, catalogs
+# 食品饮料、保健食品
+idx.food <- catalogs$first == "食品饮料、保健食品"
+cata.food <- catalogs[idx.food,]
+dtm.matrix <- as.matrix(dtm)
+dtm.food <- dtm.matrix[idx.food,]
+
+# 按照7:3将这部分样本划分为训练集与测试集两部分
+set.seed(666)
+idx <- sample(nrow(cata.food), nrow(cata.food)*.7)
+cata.food.train <- cata.food[idx,]
+cata.food.test <- cata.food[-idx,]
+dtm.food.train <- dtm.food[idx,]
+dtm.food.test <- dtm.food[-idx,]
+```
+
+```{r}
+model.nb.food <- e1071::naiveBayes(x=dtm.food.train, y=as.factor(cata.food.train$second), laplace=0)
+pred.nb.food.test <- predict(model.nb.food, dtm.food.test, type="class")
+mean(pred.nb.food.test == cata.food.test$second)
+```
+
+```{r}
+# model.nb.nbs <- naivebayes::naiveBayes(second ~ . - name-first-third, data=data.train)
+# summary(model.nb.nbs)
+# # naivebayes 包预测更快些
+# pred.test.nbs <- predict(model.nb.nbs, data=data.test)
+# mean(pred.test.nbs==data.test$second)
+```
+
+
+选择“食品饮料、保健食品”类, 按照 7:3 划分数据集, 将之前得到的 1000 个词因子变量作为自变量, 对于二级品类进行预测. 可以看到最终得到的模型预测准确率约为 85%.
+
+
+8.	使用混淆矩阵的形式展示上一问在训练集和测试集上的混淆矩阵和对应的准确率，并做简要点评。
+
+```{r}
+pred.nb.food.train <- predict(model.nb.food, dtm.food.train, type="class")
+cat("train:", mean(pred.nb.food.train==cata.food.train$second))
+table(pred.nb.food.train, cata.food.train$second)
+```
+
+
+```{r}
+cat("test:", mean(pred.nb.food.test == cata.food.test$second))
+table(pred.nb.food.test, cata.food.test$second)
+```
+
+分别计算模型在训练和测试集上的混淆矩阵如上, 可以看到:
+
+- 模型在训练和测试集准确率分别为 85.5和85.0, 基本无过拟合;
+- 较大的数字多出现在混淆矩阵的对角线上, 说明模型能够较好的进行预测;
+- 相较于其他类别, 「茗茶」和「饮料冲调」两列的数字主要出现在主对角线上, 说明模型能较好地区分出这两类, 这符合我们的直觉: 即这两个类别与其他类别的差异更显著.

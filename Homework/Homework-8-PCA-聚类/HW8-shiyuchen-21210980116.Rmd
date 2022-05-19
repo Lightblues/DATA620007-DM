@@ -1,0 +1,152 @@
+---
+title: "HW8-shiyuchen-21210980116"
+author: "Shi Yuchen"
+date: "5/17/2022"
+output: html_document
+---
+
+# NBA数据降维分析
+
+数据文件为截至2019年NBA球员季后赛总得分和每个球员的比赛详细数据。该数据收集了2448条NBA职业篮球运动员的各项比赛数据，其中包含勒布朗·詹姆斯、迈克尔·乔丹、科比·布莱恩特等多位全能巨星球员的投篮、三分球、罚球、助攻、抢断次数和季后赛总得分等18个变量信息。详细的变量说明表如下所示：
+
+| **变量名**       | **详细说明** | **取值范围**       |
+| ---------------- | ------------ | ------------------ |
+| **生涯总得分**   | 连续变量     | 0-6911             |
+| **球员**         | 文本数据     | 每个球员的官方姓名 |
+| **出场数**       | 连续变量     | 1-259              |
+| **上场总时间**   | 连续变量     | 0-10059            |
+| **投篮率**       | 连续变量     | 0%-100%            |
+| **命中次数**     | 连续变量     | 0-2457             |
+| **出手次数**     | 连续变量     | 0-5006             |
+| **三分投球率**   | 连续变量     | 0%-100%            |
+| **三分命中次数** | 连续变量     | 0-410              |
+| **三分出手次数** | 连续变量     | 0-1116             |
+| **罚球率**       | 连续变量     | 0%-100%            |
+| **罚球命中次数** | 连续变量     | 0-1627             |
+| **罚球出手次数** | 连续变量     | 0-2317             |
+| **篮板数**       | 连续变量     | 0-4104             |
+| **助攻次数**     | 连续变量     | 0-2346             |
+| **抢断次数**     | 连续变量     | 0-419              |
+| **盖帽次数**     | 连续变量     | 0-568              |
+| **失误次数**     | 连续变量     | 0-866              |
+| **犯规次数**     | 连续变量     | 0-797              |
+
+分析任务：
+1. 读入NBA数据集；
+2. 对所有的自变量进行主成分分析，选择主成分个数时使用碎石图的方法，并对结果进行解读；（提示：可以使用princomp()函数或psych包的 principal()函数）
+3. 根据任务2的结果，计算每一位球员的主成分得分，并挑选几位球员进行解读；
+4. 对NBA球员进行K-means聚类，并对结果进行解读；
+
+
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+
+library(corrplot)
+library(psych)
+```
+
+```{r}
+library(readxl)
+NBA <- read_excel("NBA.xlsx")
+head(NBA)
+```
+```{r}
+summary(NBA)
+```
+
+## 主成分分析
+
+```{r}
+data <- NBA
+data.pca = apply(NBA[,-c(1, 19)], 2, as.numeric)
+
+# 计算相关系数矩阵
+# r <- cor(data.pca)
+# par(family = "SimHei") # ~/Library/Fonts
+# 相关性矩阵可视化
+# corrplot::corrplot(r, tl.col = "black", tl.cex = 0.6)
+```
+
+可见有几组变量之间有着较高的正相关性, 例如出场数和上场总时间, 命中次数和出手次数 等.
+
+```{r}
+# 先进行对数变换
+data.pca = apply(data.pca, 2, function(x) log10(x+1))
+# 归一化
+data.pca.r = cor(data.pca)
+
+psych::fa.parallel(data.pca.r, n.obs = nrow(data), fa = "both", n.iter = 100)
+```
+
+根据崖底碎石图, 选择主成分个数为2.
+
+
+```{r}
+pca <- princomp(data.pca, cor=T)
+# summary(pca)
+pca$sdev[1:5]^2 / sum( pca$sdev^2)
+```
+
+```{r}
+pca$loadings[, 1:2]
+# eigen(data.pca.r)
+```
+
+从前两个 PC 的loading上来看, 第一个成分在各项指标上的分数都较大且较为均衡, 因此可以看作是衡量球员的「综合能力」; 第二个成分在命中、出手次数、罚球相关指标上数值较大, 而在三分相关的数值以及抢断、盖帽次数上有明显的负值, 可见更为注重速度进攻的能力, 可看作是「进攻指标」.
+
+```{r}
+data$PCA1 <- pca$scores[, 1]
+data$PCA2 <- pca$scores[, 2]
+```
+
+从数据中筛选相关球员, 分析他们的两个主成分, 可见:
+
+- 这些著名球员的第一个主成分分数就较高, 说明他们的职业能力都较强;
+- 而就第二个主成分来看, 蒂姆-邓肯, 卡尔-马龙 等著名大前锋的数值较高.
+
+```{r}
+data[which(data$球员 %in%c("勒布朗-詹姆斯", "迈克尔-乔丹", "科比-布莱恩特",
+                         "蒂姆-邓肯", "卡尔-马龙")), ]
+```
+
+
+## K-means聚类
+
+```{r}
+# 采用经过 log 变换后的原始指标进行聚类
+data.kmeans <- data.pca
+kmeans.fit <- kmeans(data.kmeans, 5)
+data$cluster <- kmeans.fit$cluster
+```
+
+```{r}
+data %>% ggplot() +
+  geom_point(aes(x=出手次数, y=三分出手次数, color=as.factor(cluster))) + 
+  theme_bw() + theme(text = element_text(family = "SimHei")) + labs(color = "类")
+```
+
+以 出手次数, 三分出手次数 两个纬度来看聚类结果, 可以看到不同类的球员在这两个指标上有着较大的差异.
+
+下面画出不同类在两个主成分上的分布情况. 注意到, 在聚类是并未采用这两个值, 但是聚类可以很好地在这两个纬度上进行区分, 体现了PCA的纬度压缩能力.
+
+```{r}
+data %>% ggplot() +
+  geom_point(aes(x=PCA1, y=PCA2, color=as.factor(cluster))) + 
+  theme_bw() + theme(text = element_text(family = "SimHei")) + labs(color = "类")
+```
+
+从聚类结果上来看, 类别2和5是总得分较高的两个类别. 下面展示了两类球员在各项指标上的差异, 可以看到, 他们在抢断、盖帽、失误次数, 以及三分相关指标上存在着明显的差异.
+
+```{r}
+data[which(data$cluster==2),]
+```
+```{r}
+data[which(data$cluster==5),]
+```
+
+
+

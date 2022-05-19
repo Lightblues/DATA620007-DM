@@ -1,0 +1,320 @@
+---
+title: "第一次代码课：描述性分析"
+author: "Siyi Han"
+date: "3/14/2022"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+```
+
+中文
+
+```{r}
+?gdtools::font_family_exists
+sysfonts::font_families()
+
+```
+
+
+
+```{r}
+jobinfo <- read.csv("jobinfo.csv", encoding = "utf-8")
+head(jobinfo)
+# command/ctrl+shift+c注释
+# View(jobinfo)
+```
+
+## 直方图
+```{r echo=FALSE}
+ggplot(jobinfo) +
+    geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+    labs(y = "频数", x = "岗位薪资")  +
+    theme_bw() +
+    theme(panel.border=element_blank(),
+          # text = element_text(family = "黑体"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+```
+
+### 数据&坐标映射&图的类型       
+```{r warning=FALSE}
+# ggplot2作图主要通过ggplot()+各类配置函数的形式来完成
+# 其中核心的函数即geom函数，我们需要用它来确定图的类型
+# 这个例子中绘制了一个最为简单的直方图，我们在ggplot()中导入我们的data.frame
+# 使用geom_histogram()定义直方图，并且定义数据的映射
+ggplot(data = jobinfo) + geom_histogram(mapping = aes(x = aveSalary))
+
+
+# 在ggplot()中输入的内容，在之后的图层中均可以运用，而将geom函数提供的只是一个图层。
+ggplot() + geom_histogram(aes(x = aveSalary), data = jobinfo)
+ggplot(jobinfo, aes(x = aveSalary)) + geom_histogram()
+```
+
+### 图形的参数（入门）  
+```{r warning=FALSE}
+# geom函数中提供了一部分调节图像细节的参数
+# 可以在函数中打出一个逗号后，按tab健查看参数，然后选定需要的参数，再按tab健确认
+# 这里是设置了它的箱宽和颜色
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold")
+```
+
+```{r}
+# 注意这里的颜色其实是可以输入一个向量来控制从左到右每个小元素的颜色
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 15000, fill = c("gold", "blue"))
+```
+
+### 图中的标签
+```{r}
+# 在labs函数中，提供图中各处的labels，tab一下以后可以看到里面还有诸如title, subtitle, caption等等参数
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+  labs(y = "freq", x = "aveSalary")
+
+# 不过这里我们也需要留意一下，R语言中使用中文作图是需要设置中文字体的，否则会乱码
+# 中文字体的设置将会在后续提及
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+  labs(y = "频数", x = "岗位薪资")
+```
+
+### 图的背景       
+```{r}
+# ggplot2其实是提供了一些预设的背景
+# 能够看到在修改背景之后，图像整体变得更加美观
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+  labs(y = "freq", x = "aveSalary") +
+  theme_bw()
+
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+  labs(y = "freq", x = "aveSalary") +
+  theme_classic()
+
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+  labs(y = "freq", x = "aveSalary") +
+  theme_dark()
+```
+
+```{r}
+# 当然，此类预设的主题函数中也提供了四个参数，能让你作出一些微调
+# 这里就包含我们所需的字体
+ggplot(jobinfo) + 
+  geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+  labs(y = "频数", x = "岗位薪资") +
+  theme_bw(base_size = 20, 
+           base_family = "STXihei", 
+           base_rect_size = 5, 
+           base_line_size = 2)
+```
+
+```{r}
+# require函数和librar作用一样，但会返回bool值
+# 注释快捷键，ctrl/command+shift+c
+require(gdtools)
+?sys_fonts # 列出系统字体。
+# View(sys_fonts())
+```
+
+### 更加个性化的图像元素设定
+```{r}
+# 在theme中可以做更加细节的设定
+# 在theme()中tab一下，就可以看到各种元素的设置参数
+# 每个元素都会有其对应的元素函数可以用于设置
+# 例如文本就可以通过element_text来设置，背景线可以用element_line来设置，其中参数可以tab一下来查看
+ggplot(jobinfo) +
+    geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+    labs(y = "频数", x = "岗位薪资") +
+    theme_bw() + 
+    theme(panel.border = element_blank(), 
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+```
+
+### 坐标轴变换
+
+```{r}
+# scale系的函数用来控制尺度上的问题
+ggplot(jobinfo) +
+    geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+    labs(y = "频数", x = "岗位薪资") +
+    scale_y_sqrt() +
+    theme_bw() + 
+    theme(panel.border = element_blank(), 
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+
+ggplot(jobinfo) +
+    geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+    labs(y = "频数", x = "岗位薪资") +
+    scale_y_log10() +
+    theme_bw() + 
+    theme(panel.border = element_blank(), 
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+```
+
+### 自定义坐标刻度
+
+```{r}
+# 还可以定制化刻度的位置，甚至对应位置上的标度
+ggplot(jobinfo) +
+    geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+    labs(y = "频数", x = "岗位薪资") +
+    scale_y_continuous(breaks = c(666, 888 ,2588)) +
+    theme_bw() + 
+    theme(panel.border = element_blank(), 
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+
+ggplot(jobinfo) +
+    geom_histogram(aes(x = aveSalary), binwidth = 2000, fill = "gold") +
+    labs(y = "频数", x = "岗位薪资") +
+    scale_y_continuous(breaks = c(666, 888 ,2588), labels = c("一", "日", "复")) +
+    theme_bw() + 
+    theme(panel.border = element_blank(), 
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+```
+
+## 箱线图
+```{r}
+# 利用箱线图画出，学历vs对数平均薪资的分布，箱体的宽度越宽表示样本量越多
+# 将学历转化为因子型变量，便于画图
+jobinfo$学历要求 = factor(jobinfo$学历要求, levels = c("中专","高中","大专","无","本科","研究生"))
+jobinfo$对数薪资 <- log(jobinfo$aveSalary)
+# 绘制箱线图
+ggplot(jobinfo) + 
+    geom_boxplot(aes(x = 学历要求, y = 对数薪资), varwidth = TRUE, fill = c(rep("grey",4),rep("gold",2))) + 
+    labs(x = "学历要求", y = "对数薪资")+
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 13),
+          axis.text = element_text(size = 12))
+```
+
+```{r}
+jobinfo$学历要求 = factor(jobinfo$学历要求, levels = c("中专","高中","大专","无","本科","研究生"))
+jobinfo$对数薪资 <- log(jobinfo$aveSalary)
+# 绘制箱线图
+ggplot(jobinfo) + 
+    geom_boxplot(aes(x = 学历要求, y = 对数薪资, fill = 学历要求), varwidth = TRUE) + 
+    labs(x = "学历要求", y = "对数薪资", fill = "图例")+
+    scale_fill_brewer(palette = 1) +
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 13),
+          axis.text = element_text(size = 12))
+```
+
+```{r}
+ggplot(jobinfo) + 
+    geom_boxplot(aes(x = 学历要求, y = 对数薪资, fill = 学历要求), varwidth = TRUE) + 
+    labs(x = "学历要求", y = "对数薪资", fill = "图例")+
+    scale_color_manual(values = c("gold", "red", "green", "blue", "blue", "blue")) +
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 13),
+          axis.text = element_text(size = 12))
+```
+
+```{r}
+ggplot(jobinfo) + 
+    geom_boxplot(aes(x = 学历要求, y = 对数薪资, color = 学历要求), varwidth = TRUE) + 
+    labs(x = "学历要求", y = "对数薪资", color = "图例")+
+    scale_color_manual(values = c("gold", "red", "green", "blue", "blue", "blue")) +
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 13),
+          axis.text = element_text(size = 12))
+```
+
+
+
+
+```{r}
+ggplot(jobinfo) + 
+  geom_boxplot(aes(x = as.factor(Python), y = 对数薪资), fill = c("grey","gold")) + 
+  labs(x="是否要求会使用Python", y = "对数薪资") +
+  theme_bw() + 
+  theme(panel.border=element_blank(),
+        text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 14))
+```
+
+```{r}
+ggplot(jobinfo) + 
+  geom_boxplot(aes(x = as.factor(SPSS), y = 对数薪资), fill = c("grey","gold")) + 
+  labs(x="是否要求会使用SPSS", y = "对数薪资") +
+  theme_bw() + 
+  theme(panel.border=element_blank(),
+        text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 14))
+```
+
+## Others
+
+### 将多张箱线图画在一起
+
+```{r}
+set.seed(2017-10-30) 
+d <- data.frame(riskScore = abs(rnorm(100)), BMI = sample(1:2, 100, replace=T), stage = sample(1:2, 100, replace=T), age = sample(1:2, 100, replace=T), gender = sample(1:2, 100, replace=T))
+head(d)
+```
+
+
+```{r}
+convert <- function(d) {
+    lapply(2:ncol(d), function(i) {
+        d2 <- d[, c(1,i)]
+        d2$type = colnames(d2)[2]
+        colnames(d2) = c("riskScore", "category", "type")
+        return(d2)
+    }) %>% do.call('rbind', .)
+}
+
+dd <- convert(d)
+head(dd)
+```
+
+```{r}
+ggplot(dd, aes(type, riskScore, color=factor(category), fill=type)) + geom_boxplot() + 
+  scale_color_manual(values=rep('black',2), guide="none")
+```
+### 使用 ggarrange
+
+```{r}
+# library(glue) # 根据放入的变量生成图表标题
+library(ggpubr) # 将图片保存为一个pdf文件
+library(tidyverse) # map2函数用于循环
+
+# mtcars为示例数据
+x = names(mtcars)[1]
+y = names(mtcars)[-1]
+
+
+plot_list = map2(x, y, 
+     ~ mtcars %>% 
+       ggplot(aes_string(x = .x, y = .y)) +
+       geom_point()
+       #labs(title = glue('{.x} ~ {.y}')))
+)
+ggarrange(plotlist = plot_list)
+```
+

@@ -1,0 +1,204 @@
+---
+title: "HW3-shiyuchen-21210980116"
+author: "Shi Yuchen"
+date: "3/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 数据说明
+
+本案例所采用数据为“data.csv”文件为北京外卖商家销量数据，数据集包含了32043条商家信息，为2017年8月从北京地区某外卖平台爬取的数据。每一条观测数据为一个商家的信息，变量包括月销量、平均每单价格、配送方式、配送费等。自变量共分为五个维度，分别为外卖商户基本信息、评分信息、位置信息、优惠信息和衍生字段信息，具体信息如下表所示。
+
+字段对照：
+1．基本信息：
+delivery_mode(商家配送方式)；float_delivery_fee(配送费)；float_minimum_order_amount(起送价)；is_new(是否新店)；is_premium(是否品牌店)；order_lead_time(配送时间)；recent_order_num(月销量)；average_cost(平均每单费用)；保(是否支持外卖保)；票(是否可开发票)；open_time(每天营业时长，单位：小时)；open08(8点是否营业)；open12(12点是否营业)；open18(18点是否营业)；open23(23点是否营业)；shop_type(商家分类)
+2．评分信息：
+compare_rating(比较评分，通过和周边商家对比得到的得分)；food_score(食物评分)；service_score(服务评分)；star_level(星级)；
+3．位置信息
+district(行政区划1，包含北京全部16个行政区)；district0(行政区划2，其中将北京城六区外的其他区合并为非城区)；
+4．优惠信息
+manjian_discount(满减折扣率)；new_user(新用户减免)；other_activities(其他活动数量，除了满减和新用户减免外的其他活动)；
+5．衍生字段信息
+log_recent_order_num(对数月销量：月销量加1再取对数)；log_average_cost(对数平均每单费用：平均每单费用加1再取对数)；log_float_delivery_fee(对数配送费：配送费加1再取对数)；
+
+
+## 分析任务
+
+1. 读入数据，查看数据情况；
+2. 绘制对数月销量的直方图，观察其特征，并作出解释；
+3. 绘制行政区划与月销量对比箱线图，并作出解释（要求箱线图的箱子按中位数大小排列）；
+4. 绘制四个用餐高峰期是否营业（open08、open12、open18、open23）与对数月销量对比箱线图（四个子图）。要求：在一张大图中放入四个子图（提示：使用基础绘图函数时可用par参数，使用ggplot2时使用facet_wrap分面或者ggpubr包中的ggarrange函数）；
+5. 建立回归模型，使用BIC准则进行逐步回归得到最终模型，查看最终模型中的系数大小及其显著性，并解读系数。要求：
+1)	因变量：对数月销量
+2)	自变量：对数平均每单费用、配送模式、对数配送费、对数起送费、起送时间、所在行政区（北京市16区）、是否有外卖保、是否开发票、满减折扣率、其他优惠活动数、新用户减免、每天营业时长、8点是否营业、12点是否营业、16点是否营业、23点是否营业、商家分类、是否新店、是否品牌店
+3)	对于行政区划变量，使用昌平区作为基准水平；
+4)	对于商家分类变量，使用果蔬生鲜作为基准水平；
+
+6. 从模型中提取出行政区变量的系数与显著性，分别绘制系数柱状图，要求：
+1)	回归系数按数值大小排列；
+2)	显著与不显著使用不同颜色标注；
+
+7. 假设你要开一家外卖店，并有如下打算，请预测其未来的（已经不是新店）月销量。
+1)	在长宁区经营快餐简餐（非品牌店），目标客户是学生党，平均每单费用约为20元（可参考北京与长宁区定位相似的行政区）；
+2)	使用蜂鸟专送，配送费6元，配送时间约为45分钟；
+3)	不可开发票；
+4)	综合评分(new_score)约为0.65分；
+5)	满减折扣率约为35%、其他活动数5个、没有新用户减免；
+6)	每天营业11小时，且在18点和23点都营业。
+
+## 数据概况
+
+1. 读入数据，查看数据情况；
+
+```{r}
+raw_data = read.csv('data.csv', encoding='UTF-8')
+head(raw_data)
+```
+
+```{r}
+# 数据类型
+data = raw_data
+data$is_new = as.logical(data$is_new)
+data$is_premium = as.logical(data$is_premium)
+
+# table(data$open12)
+# 0/1
+for (name in c('open08', 'open12', 'open18', 'open23', 'delivery_mode', "district", "district0", "shop_type")) {
+  data[[name]] = as.factor(data[[name]])
+}
+summary(data)
+```
+
+
+2. 绘制对数月销量的直方图，观察其特征，并作出解释；
+
+```{r}
+par(family="PingFangSC-Regular")
+hist(raw_data$log_recent_order_num, freq = T, main = "对数月销量直方图", col = "#FF9933", xlab = "对数月销量", ylab = "频数") 
+```
+
+观察对数月销量的分布, 有较多的商家月销量在4-7之间, 而少数商家月销量在8以上, 另有一部分商家的对数月销量不足2, 销量较少. 从总体来看, 除去少量销量较低的商家之外, 总体来看对数月销量呈现右偏.
+
+3. 绘制行政区划与月销量对比箱线图，并作出解释（要求箱线图的箱子按中位数大小排列）；
+
+```{r}
+par(family="PingFangSC-Regular")
+# reorder district0
+new_order <- with(data, reorder(district0, log_recent_order_num, median))
+boxplot(log_recent_order_num ~ new_order, data=data, main = "对数月销量 ~ 行政区划 箱线图", xlab = "行政区划", ylab = "月销量", col = "#FF9933")
+```
+
+从上图中可以看到, 不同行政区划的商家月销量存在差异. 非城区的商家月销量明显小于北京城六区; 其中销量最高的城区为海淀区.
+
+4. 绘制四个用餐高峰期是否营业（open08、open12、open18、open23）与对数月销量对比箱线图（四个子图）。要求：在一张大图中放入四个子图（提示：使用基础绘图函数时可用par参数，使用ggplot2时使用facet_wrap分面或者ggpubr包中的ggarrange函数）；
+
+```{r}
+par(family="PingFangSC-Regular", mfrow = c(2, 2))
+
+for (time in c("open08", "open12", "open18", "open23")) {
+  boxplot(data$log_recent_order_num ~ data[, time], data=data, main=paste0("对数月销量 ~ ", time, " 箱线图"), xlab = "是否营业", ylab = "对数月销量", col = "#FF9933")
+}
+
+```
+
+从四张图中可以看到, 是否在高峰期间营业对于月销量有一定的影响: 在四个时间段, 营业的商家月销量均高于不营业的商家. 其中最为显著的是16点是否营业 (也即晚饭时段) 这一因子, 在这一高峰期选择营业的店家月销量要明显高于不营业的商家.
+
+## 回归模型
+
+5. 建立回归模型，使用BIC准则进行逐步回归得到最终模型，查看最终模型中的系数大小及其显著性，并解读系数。要求：
+1)	因变量：对数月销量
+2)	自变量：对数平均每单费用、配送模式、对数配送费、对数起送费、起送时间、所在行政区（北京市16区）、是否有外卖保、是否开发票、满减折扣率、其他优惠活动数、新用户减免、每天营业时长、8点是否营业、12点是否营业、16点是否营业、23点是否营业、商家分类、是否新店、是否品牌店
+3)	对于行政区划变量，使用昌平区作为基准水平；
+4)	对于商家分类变量，使用果蔬生鲜作为基准水平；
+
+```{r}
+# set reference level
+data$shop_type = relevel(as.factor(data$shop_type), ref="果蔬生鲜")
+data$district = relevel(as.factor(data$district), ref="昌平区")
+
+model_full = lm(
+  log_recent_order_num ~ log_average_cost+delivery_mode+log_float_delivery_fee+log_float_minimum_order_amount+order_lead_time+
+    district+保+票+manjian_discount+other_activities+new_user+open_time+open08+open12+open18+open23+
+      shop_type+is_new+is_premium, data
+  )
+summary(model_full)
+```
+
+```{r}
+# BIC
+library(MASS)
+model_bic = MASS::stepAIC(model_full, k = log(nrow(data)))
+# step(model_full, k=log(nrow(data)))
+```
+
+```{r}
+summary(model_bic)
+```
+
+
+使用BIC准则进行逐步回归后, 最终的模型为 `log_recent_order_num ~ log_average_cost + delivery_mode + log_float_delivery_fee + order_lead_time + district + 保 + 票 + manjian_discount + other_activities + open_time + open18 + open23 + shop_type + is_new + is_premium`.
+
+在上面展示的模型概要中, 最后一列给出了该变量的显著性大小, `Estimate` 一列为回归系数. 下面举例分析几个自变量的
+
+- 对数平均价格p值< 2e-16, 较为显著, 回归系数为 0.2668. 说明平均而言, 对数价格增加 1 (价格增加$e$倍), 对数月均销量增长 $e^{0.2668}$ 倍.
+- 城区的基准水平为昌平区, 而朝阳区的回归系数为 0.0345. 说明朝阳区商家的平均月销量更高, 相较于昌平区高出 $e^{0.0345}$ 倍.
+- 满减折扣率的系数为 3.9118. 说明满减折扣率增长 0.1, 平均来说, 对数月销量增长 $e^{0.1*3.9118}$ 倍.
+
+6. 从模型中提取出行政区变量的系数与显著性，分别绘制系数柱状图，要求：
+1)	回归系数按数值大小排列；
+2)	显著与不显著使用不同颜色标注；
+
+```{r}
+coef = summary(model_bic)$coefficients
+coef_district = data.frame(coef[6:20,][,c(1,4)])
+colnames(coef_district) = c('coef', 'p')
+coef_district
+```
+
+```{r}
+coef_district = coef_district[order(coef_district$coef),]
+
+coef_district$sig = cut(coef_district$p, breaks=c(0, .001, .01, .05, .1, 1), labels=c('***', '**', '*', '.', '_'))
+
+par(family="PingFangSC-Regular")
+library(RColorBrewer)
+coul <- brewer.pal(5, "Set1")
+coef_district$color = coul[coef_district$sig]
+
+mp = barplot(coef_district$coef, col=coef_district$color, main = "回归系数 ~ 行政区 柱状图", xlab="行政区", ylab="回归系数", 
+             # legend.text=c('***', '**', '*', '.', '_'), args.legend=list(x="bottomright", fill=coul[1:5])
+             )
+legend("bottomright", legend=c('***', '**', '*', '.', '_'), fill=coul)
+# 设置横坐标
+lablist <- rownames(coef_district)
+text(mp, par("usr")[3], labels = lablist, srt = 45, adj = c(1.1,1.1), xpd = TRUE, cex=0.6)
+```
+
+回归系数柱状图如上, 显著性水平用颜色显示了. 从图中可以看到, 密云区的回归系数最小, 门头沟区的系数最大.
+
+7. 假设你要开一家外卖店，并有如下打算，请预测其未来的（已经不是新店）月销量。
+1)	在长宁区经营快餐简餐（非品牌店），目标客户是学生党，平均每单费用约为20元（可参考北京与长宁区定位相似的行政区）；
+2)	使用蜂鸟专送，配送费6元，配送时间约为45分钟；
+3)	不可开发票；
+4)	综合评分(new_score)约为0.65分；
+5)	满减折扣率约为35%、其他活动数5个、没有新用户减免；
+6)	每天营业11小时，且在18点和23点都营业。
+
+```{r}
+cnames = c("log_average_cost", "delivery_mode", "log_float_delivery_fee", "order_lead_time", "district", "保", "票", "manjian_discount", "other_activities", "open_time", "open18", "open23", "shop_type", "is_new", "is_premium")
+new_shop = list(log(20), "蜂鸟专送", log(6), 45, "海淀区", T,F, 0.35, 5, 11, "1", "1", "快餐简餐", FALSE, FALSE)
+test_data = as.data.frame(new_shop, col.names=cnames)
+# test_data
+
+logsalary_hat = predict.lm(model_bic, test_data)
+# 对数线性回归需要进行调整
+sigma_hat2 = sum(model_bic$residuals^2) / model_bic$df.residual  # sigma^2估计值
+y_hat = exp(logsalary_hat + sigma_hat2/2) 
+cat("预计月销量约为", round(y_hat, 2))
+```
+
+选择海淀区作为长宁区类似的行政区. 在上面的假定下, 模型预测的月销量约为1453份.

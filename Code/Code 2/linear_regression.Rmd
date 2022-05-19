@@ -1,0 +1,231 @@
+---
+title: "线性回归：岗位招聘"
+author: "李哲 zheli20@fudan.edu.cn"
+date: "3/21/2022"
+output: html_document
+---
+
+```{r}
+# 设置工作目录
+# setwd("~/Downloads/代码课0321")
+# 加载所需要的包
+library(ggplot2)
+library(dplyr)
+```
+
+
+```{r}
+jobinfo <- read.csv("jobinfo_ch7.csv", fileEncoding = "utf-8")
+head(jobinfo)
+summary(jobinfo)
+```
+
+## 3. 探索分析
+
+### 因变量
+
+```{r}
+ggplot(data = jobinfo,aes(x=aveSalary)) +
+    geom_histogram(binwidth = 2000,fill="gold") +
+    labs(y="频数",x = "岗位薪资") +
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          # axis.title.x = element_text(size = 12),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+```
+
+### 自变量
+
+学历
+
+```{r}
+# 利用箱线图画出，学历vs对数平均薪资的分布，箱体的宽度越宽表示样本量越多
+# 将学历转化为因子型变量，便于画图
+jobinfo$学历要求 = factor(jobinfo$学历要求,levels=c("中专","高中","大专","无","本科","研究生"))
+jobinfo$对数薪资 <- log(jobinfo$aveSalary)
+# 绘制箱线图
+ggplot(jobinfo,aes(学历要求,对数薪资)) + 
+        geom_boxplot(varwidth = TRUE, fill = c(rep("grey",4),rep("gold",2))) + 
+        labs(x="学历要求", y = "对数薪资")+
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 13),
+          axis.text = element_text(size = 12))
+```
+
+```{r}
+tmp <- jobinfo %>% group_by(学历要求) %>% summarise(median(aveSalary))
+tmp
+```
+
+解读：数据分析岗位大多要求中等学历，如大专及本科，要求硕博士或高中及以下的岗位较少。整体来看，薪资会随学历水涨船高。对学历无特别要求以及要求最低学历在大专以下的岗位薪资水平差距不大，本科和硕士逐步提升，博士学历薪资则明显高于其他学历。
+
+- 数据分析软件
+
+```{r}
+ggplot(jobinfo,aes(as.factor(Python),对数薪资)) + 
+        geom_boxplot(fill = c("grey","gold")) + 
+        labs(x="是否要求会使用Python", y = "对数薪资") +
+            theme_bw() + 
+theme(panel.border=element_blank(),
+      text = element_text(family = "STXihei"),
+                      axis.title = element_text(size = 15),
+          axis.text = element_text(size = 14))
+```
+
+```{r}
+ggplot(jobinfo,aes(as.factor(SPSS),对数薪资)) + 
+        geom_boxplot(fill = c("grey","gold")) + 
+        labs(x="是否要求会使用SPSS", y = "对数薪资") +
+            theme_bw() + 
+theme(panel.border=element_blank(),
+      text = element_text(family = "STXihei"),
+                      axis.title = element_text(size = 15),
+          axis.text = element_text(size = 14))
+```
+
+
+
+## 回归
+
+### 1. 以平均薪资为因变量的线性模型
+
+```{r}
+# 转换为factor型变量，地区以河北为基准，公司类别以国企为基准，公司规模以少于50人为基准，学历以无为基准
+jobinfo$公司类别 <- factor(jobinfo$公司类别, levels = c("国企","合资","外资","上市公司","民营公司","创业公司"))
+jobinfo$公司规模 <- factor(jobinfo$公司规模, levels = c("少于50人","50-500人","500-1000人","1000-5000人","5000-10000人","10000人以上"))
+jobinfo$学历要求 <- factor(jobinfo$学历要求, levels = c("无","中专","高中","大专","本科","研究生"))
+
+## 软件要求
+for (i in c(2:13)){
+        jobinfo[,i] <- as.factor(jobinfo[,i])
+}
+```
+
+注意：回归时，地区以河北为基准，公司类别以国企为基准，公司规模以少于50人为基准，学历以无为基准。
+
+```{r}
+## 建立线性模型
+lm.fit1 = lm(aveSalary ~ ., data = jobinfo)
+## 查看回归结果
+summary(lm.fit1)
+```
+
+```{r}
+## 对线性模型进行回归诊断
+# 将画布分为2*2的4块
+par(mfrow=c(2,2))
+plot(lm.fit1, which = c(1:4)) 
+```
+
+
+
+### 2. 以对数平均薪资为因变量的线性模型
+
+```{r}
+## 计算对数因变量
+jobinfo$对数薪资 <- log(jobinfo$aveSalary)
+# 建立对数线性模型，剔除平均薪资变量
+lm.fit2 = lm(对数薪资 ~ .-aveSalary, data = jobinfo)
+## 查看回归结果
+summary(lm.fit2)
+```
+
+```{r}
+# 将画布分为2*2的4块
+par(mfrow=c(2,2))
+plot(lm.fit2, which = c(1:4)) 
+```
+
+*   图中所示残差并不随着拟合值的变化呈现规律性变化，因此基本满足线性假设
+*   图中的散点大部分落在呈45度倾斜的直线上，满足正态性
+*   水平线周围的点应呈现无规律随机分布，不存在异方差问题
+*   样本点的库克距离最大值未超过0.05，因此认为样本中不存在异常点
+
+
+
+### 3. 多重共线性诊断
+
+```{r}
+# 多重共线性诊断：计算VIF值
+library(DAAG)
+vif(lm.fit2)
+```
+
+**VIF<10**，推断不存在多重共线性
+
+### 4. 模型选择
+
+$$
+\begin{gathered}
+A I C=-2 l(\beta)+2 k \\
+B I C=-2 \ell(\beta)+2 k \log n
+\end{gathered}
+$$
+
+```{r}
+## 使用BIC准则选择模型
+n <- nrow(jobinfo)
+lm.bic <- step(lm.fit2, direction = "both", k = log(n), trace = F)
+summary(lm.bic)
+```
+
+
+### 5. 模型预测
+
+```{r}
+## 新样本
+testdata <- data.frame(R = 1, SPSS = 0, Excel = 0, Python = 1, MATLAB = 0, Java = 0, SQL = 1, SAS = 0, Stata = 0, EViews = 0, Spark = 0, Hadoop = 1, 公司类别 = "上市公司", 公司规模 = "1000-5000人", 学历要求 = "研究生", 工作经验 = 3, 地区 = "北上深")
+## 将软件技能转换为factor类型
+for (i in c(1:12)) {
+    testdata[,i] <- as.factor(testdata[,i])
+}
+logsalary_hat <- predict(lm.bic, newdata = testdata)  # 预测值
+sigma_hat2 <- sum(lm.bic$residuals^2)/lm.bic$df.residual  # sigma^2估计值
+y_hat <- exp(logsalary_hat + sigma_hat2/2)  # 
+cat("平均薪资水平约为", round(y_hat, 2), "元/月")
+```
+
+注意: 因为我们采用的是对数线性回归, 因此预测值并不是 $e^{\hat{y}}$, 而应该是
+
+$$
+\hat{y}^{\prime}=e^{\hat{y}+\frac{\hat{\sigma}}{2}}
+$$
+
+其中
+
+$$
+\hat{\sigma}^{2}=\frac{1}{n-p-1} \sum_{i=1}^{n}\left(\hat{y}_{i}-y_{i}^{0}\right)^{2}
+$$
+
+## 交叉验证的实现
+
+很多第三方包都能实现交叉验证的功能，例如课件中`DAAG`包中的`cv.lm`函数，`bootstrap`包中的`crossval()`函数，当然自己自己造轮子也是比较简单的：
+
+```{r}
+pred.cv <- function(dat, k) {
+  ind <- sample(1:k, nrow(dat), replace=T) # 重复放回抽样
+  pred_cv <-rep(0, nrow(dat))
+  for (i in 1:k) {
+    ii  <- which(ind==i)
+    obj <- lm(`对数薪资`~ . - aveSalary, data=dat[-ii,])
+    pred_cv[ii] <- predict(obj, dat[ii,])
+  }
+  rmse <- sqrt(mean(pred_cv-dat$`对数薪资`)^2)
+  return(list(pred_cv=pred_cv, rmse = rmse))
+}
+```
+
+$$
+R M S E=\sqrt{\frac{1}{N} \sum_{i=1}^{N}\left(\hat{y}_{i}-y_{i}^{0}\right)^{2}}
+$$
+
+```{r}
+set.seed(2022)
+system.time({pred_cv <- pred.cv(dat=jobinfo, k=5)})
+pred_cv$rmse
+```
+

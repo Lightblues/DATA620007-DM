@@ -1,0 +1,478 @@
+---
+title: "HW4-shiyuchen-21210980116"
+author: "Shi Yuchen"
+date: "4/4/2022"
+output: html_document
+---
+
+## Newton-Raphson 算法逻辑回归
+
+
+```{r warning=FALSE}
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+```
+
+Question: Write Newton-Raphson algorithm to estimate logistic regression by yourself.
+
+1. Generate $X<-\left(1, X_{1}, X_{2}, X_{3}\right)$, where $X_{j} \sim N\left(0, I_{N}\right)$.
+2. Set true parameter $\beta<-(-1,2,-3,0.5)^{\top}$.
+3. Set $N<-200,400,800,1600$.
+4. Estimate $\beta$ using $N R$ algorithm for $R<-200$ times. For each $j$, draw $\left(\widehat{\beta}_{j}^{(r)}-\beta_{j}\right)$ in boxplot for $N<-200,400,800,1600$.
+
+Submit your code (with detailed comments) + report your plot \& findings in html.
+
+```{r}
+get.p <- function(x, beta) {
+  a <- exp(x %*% beta)
+  a / (1+a)
+}
+get.w <- function(x, beta) {
+  p <- get.p(x, beta)
+  diag(c(p * (1-p)))
+}
+```
+
+
+```{r}
+set.seed(116)
+
+R <- 200  # 重复实验次数
+N <- 200  # 样本数量
+iter.times <- 100 # NR迭代次数
+
+
+# NR 法进行参数估计
+nr.algo <- function(x, y, beta, iters=100, threshold=1e-10) {
+  for (i in 1:iters) {
+    # NR 迭代过程
+    p <- get.p(x, beta)
+    w <- get.w(x, beta)
+    # p <- plogis(x %*% beta)
+    # w <- diag(c(N*p * (1-p)))
+    beta.old <- beta
+    beta <- beta + solve(t(x) %*% w %*% x) %*% t(x) %*% (y - p);
+    # cat(beta, "\n")
+    
+    # 异常检查, 终止条件
+    delta <- mean((beta-beta.old) ** 2)
+    if (is.na(delta)) {
+      cat("Encounter NA at iteration", i, "!\n")
+      return(beta)
+    }
+    if (delta <= threshold) {
+      # cat("Early stop after", i, "iterations!\n")
+      return(beta)
+    }
+  }
+  # cat("Finish!\n")
+  return(beta)
+}
+
+# 模拟进行实验
+nr.experiment <- function(beta.true, iters=iter.times) {
+  # 生成数据
+  X <- matrix(c(
+    array(1, c(N, 1)), 
+    array(rnorm(3*N), c(N, 3))
+  ), ncol=4)
+  
+  # 注意, 这里应该按照按照 伯努利分布生成Y
+  # Y <- as.integer(plogis(X %*% beta.true) > .5)
+  probs <- get.p(X, beta.true)
+  # probs <- plogis(X %*% beta.true)
+  Y <- rbinom(n=length(probs), size=1, prob=probs)
+  
+  beta.0 <- matrix(rnorm(4, mean = 0, sd = .2)) # 初始值; 注意调整 sd!
+  beta.e <- nr.algo(X, Y, beta.0, iters=iters)
+  c(beta.e)
+}
+
+# beta.true <- matrix(c(-1,2,-3,0.5))
+# # 保存结果
+# beta.estimates <- matrix(nrow = R, ncol = 4)
+# 
+# for (i in 1:R) {
+#   beta.e <- nr.experiment(beta.true)
+#   
+#   beta.estimates[i,] <- t(beta.e)
+# }
+```
+
+```{r}
+# 真实参数
+beta.true <- matrix(c(-1,2,-3,0.5))
+
+# 重复运行实验, 保存记录, 绘图
+nr.plot <- function(N) {
+  beta.estimates <- matrix(nrow = R, ncol = 4) # # 保存结果
+  # 运行R次实验
+  for (i in 1:R) {
+    beta.e <- nr.experiment(beta.true)
+    beta.estimates[i,] <- t(beta.e)
+  }
+  # 绘图
+  df <- data.frame(beta.estimates) %>%  pivot_longer(1:4, 
+       names_to = "beta", 
+       values_to = "estimate")
+  
+  ggplot(data.frame(df)) + 
+    geom_boxplot(aes(x=beta, y=estimate), na.rm = T, fill="gray",) +
+    labs(x="beta", y = "estimated", title=bquote(N==.(N))) +
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 15),
+          axis.text = element_text(size = 11))
+}
+
+```
+
+```{r}
+# N.list <-  c(200,400,800,1600)
+# for (r in N.list) {
+#   nr.plot(r)
+# }
+# f <- function(x) {
+#   for (i in 1:10) {
+#     cat(i)
+#     if (i==5) {
+#       return(i)
+#     }
+#   }
+# }
+# f()
+nr.plot(200)
+```
+
+```{r}
+nr.plot(400)
+```
+
+```{r}
+nr.plot(800)
+```
+
+```{r}
+nr.plot(1600)
+```
+
+实验设置真实参数 $\beta = (-1,2,-3,0.5)^{\top}$, 对于不同样本数量的影响进行实验: 分别设置 N为 200, 400, 800, 1600. 每次实验重复200次, 绘制参数估计结果的箱线图. 结果如上.
+
+- 参数搜索的开始值对于NR方式是否收敛有影响. 对于beta初始化为 $N(0, \sigma^2I)$, 发现当方差变大时, 实验会有部分生成的数据上无法收敛;
+- 在不同样本量下, 算法均能收敛到真实值附近; 随着样本量的增加, 参数的估计更为稳定 (箱线图更窄).
+- 根据箱线图可以看到, 算法对于更接近零的参数估计更准, 估计值的分布更为集中.
+
+## 数据说明
+
+互联网的出现和扩张，改变了人们的生活。其中之一，就是为术业有专攻的人们提供了发光发热的新方式。本案例将探索这股知识网红热潮中的一个分支，如何通过一对一聊天的方式来建立自己的职业声誉。我们选取了知识共享网站在行上的行家约聊数据，探索了行家受欢迎程度的分布特征和影响因素，并根据数据分析的结果为想要进入这个领域的专业人士提供了自我包装的建议。数据共分为四个文件，“D-cate.csv”为话题分类，“D-mentor.csv”为行家属性，“D-topic.csv”为话题属性、“D-comment.csv”为用户评价信息。由于变量较多，具体变量含义请参照“REDAME.txt”。
+
+```{r}
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+```
+
+
+## 分析任务
+
+1.	读入数据：
+a)	读入所有话题的分类属性D-cate.csv，命名为cate
+b)	读入行家属性D-mentor.csv，命名为mentor
+c)	读入话题属性D-topic.csv，命名为topic
+d)	读入用户对话题做出的评价D-comment.csv，命名为comment
+
+```{r}
+cate <- read.csv("D-cate.csv")
+mentor <- read.csv("D-mentor.csv")
+topic <- read.csv("D-topic.csv")
+comment <- read.csv("D-comment.csv")
+```
+
+
+2.	数据处理：
+
+a)	将以下变量转化为因子型
+
+对mentor表中的行家接受率arating，设置高接受率、中接受率、其他共三个水平；
+对mentor表中的行家回应邀约时间react_tm，设置半天内回应、1天内回应、2天内回应、其他共四个水平；
+对topic表中的话题约见城市topic_city，设置北京、上海、深圳、广州、杭州、成都、武汉、西安、宁波、其他共10个水平。
+
+
+b)	构造变量：
+
+在topic表中增加9个0-1变量：d1-d9，分别对应心理、投资理财、职场发展、教育学习、创业和融资、生活服务、互联网+、兴业经验、其他共9个话题；
+在topic中增加0-1变量：is_ord，话题是否成交（topic_ordcnt>0）；
+在topic中增加0-1变量：is_fst，话题是否发生在北上深；
+topic中增加话题价格带：price_b，分为<<-300、(300,600]、(600,1000)、1000+四个水平；
+对price_b因子化，并设定各取值的顺序；
+topic表中增加话题描述长度：len_desc，话题描述字符数，划分为(0,200]、(200,400]、(400,600]、(600,800]、(800,1000]、1000+六个水平；
+topic表中增加行家是否回复用户评价：is_rpl，行家是否回复用户评价（聚合comment表中is_reply得到reply_cnt，reply_cnt>0）。
+
+```{r}
+# table(mentor$arating)
+idx <- mentor$arating %in% c("高接受率", "中接受率")
+mentor$arating[!idx] <- "其他"
+mentor$arating <- factor(mentor$arating, levels = c("高接受率", "中接受率", "其他"))
+# table(mentor$react_tm)
+mentor$react_tm <- factor(mentor$react_tm, levels = c("半天内回应", "1天内回应", "2天内回应", "其他"))
+
+# table(topic$topic_city)
+topic$topic_city <- factor(topic$topic_city)
+```
+
+```{r}
+topic$d1 <- ifelse(str_detect(topic$topic_tag, "心理"), TRUE, FALSE)
+# table(topic$tag_xinli)
+topic$d2 <- ifelse(str_detect(topic$topic_tag, "投资理财"), TRUE, FALSE)
+topic$d3 <- ifelse(str_detect(topic$topic_tag, "职场发展"), TRUE, FALSE)
+topic$d4 <- ifelse(str_detect(topic$topic_tag, "教育学习"), TRUE, FALSE)
+topic$d5 <- ifelse(str_detect(topic$topic_tag, "创业和投融资"), TRUE, FALSE)
+topic$d6 <- ifelse(str_detect(topic$topic_tag, "生活服务"), TRUE, FALSE)
+topic$d7 <- ifelse(str_detect(topic$topic_tag, "互联网+"), TRUE, FALSE)
+topic$d8 <- ifelse(str_detect(topic$topic_tag, "行业经验"), TRUE, FALSE)
+# paste0("d", 1:8)
+# "d1" "d2" "d3" "d4" "d5" "d6" "d7" "d8"
+idx <- apply(topic[paste0("d", 1:8)], 1, sum)==0
+topic$d9 <- ifelse(idx, TRUE, FALSE)
+
+topic$is_ord <- topic$topic_ordcnt>0
+
+topic$is_fst <- topic$topic_city %in% c("北京", "上海", "深圳")
+# table(topic$is_fst)
+
+topic$price_b <- cut(topic$price, breaks = c(0, 300, 600, 1000, 1e10), labels = c("<=300", "(300,600]", "(600,1000]", "1000+"))
+# table(topic$price_b)
+
+topic$len_desc <- cut(
+  str_length(topic$topic_desc), breaks = c(0, 200, 400, 600, 800, 1000, 1e10), 
+  labels = c("(0,200]", "(200,400]", "(400,600]", "(600,800]", "(800,1000]", "1000+"))
+
+comment.topic <- comment %>% group_by(topic_id) %>% summarise(rep.cnt=sum(is_reply))
+topic <- left_join(topic, comment.topic, by="topic_id")
+topic$is_rpl <- topic$rep.cnt > 0
+```
+
+
+
+3. 绘制导师约见人数分布直方图（可以考虑对mentor$mentor_ordcnt做对数变换），并进行描述分析
+
+```{r}
+ggplot(mentor) +
+    geom_histogram(aes(x = log(mentor_ordcnt+1)), bins = 20, fill = "gray") +
+    labs(y = "频数", x = "log(约见人数)") +
+    theme_bw() + 
+    theme(panel.border=element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 11))
+```
+
+对于导师约见人数做对数变换, 绘制频次直方图 (为计算合法, 将约见人数+1). 从上图可以看到, 有750+的导师约见人数为0, 多数导师的对数约见人数在 [0, 4] 范围内, 也即50人以下; 对数约见人数呈现长尾分布.
+
+4. 分领域（心理、投资理财等共9个领域）绘制行家约见人数（topic_ordcnt）的箱线图，按中位数从左到右，从高到低的顺序排列，并进行描述分析
+
+```{r}
+col.names <- paste0("d", 1:9)
+districts <- c("心理", "投资理财", "职场发展", "教育学习", "创业和投融资", "生活服务", "互联网+", "行业经验", "其他")
+
+# # 分开画图
+# plots.list <- vector('list', 9)
+# for (i in 1:9) {
+#   col.name <- col.names[i]
+#   plots.list[[i]] <- ggplot(topic[topic[[col.name]], ]) + 
+#     geom_boxplot(aes(y = log(topic_ordcnt+1)), varwidth = TRUE, fill = "grey") +
+#     labs(x = districts[i], y = "")+
+#     theme_bw() +
+#     theme(panel.border=element_blank(),
+#           text = element_text(family = "STXihei"),
+#           axis.title = element_text(size = 13),
+#           axis.text = element_text(size = 12))
+# }
+# # plots.list[[1]]
+# ggpubr::ggarrange(plotlist = plots.list)
+```
+
+```{r}
+topic.districs <- lapply(1:9, function(i) {
+  col.name <- col.names[i]
+  d2 <- topic[, c("topic_ordcnt", col.name)][topic[[col.name]],]
+  d2$type = districts[i]
+  colnames(d2) = c("topic_ordcnt", "none", "type")
+  return(d2)
+}) %>% do.call('rbind', .)
+
+# 按照中位数对于领域进行排序
+median.order <- topic.districs %>% group_by(type) %>% summarise(ordcnt_median=median(topic_ordcnt))
+median.order <- median.order[order(median.order$ordcnt_median, decreasing = TRUE),]
+topic.districs$type <- factor(topic.districs$type, levels = median.order$type) # 转为 factor
+ggplot(topic.districs) + 
+  geom_boxplot(aes(type, log(topic_ordcnt+1)), fill="gray", varwidth=TRUE) +
+  labs(x="领域", y = "对数约见人数") +
+  theme_bw() + 
+  theme(panel.border=element_blank(),
+        text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 11))
+```
+
+一个 topic 所属的领域可能有多个. 为了对于之前定义的多个 0-1 变量的「领域」绘图, 制作中间表格 topic.districs, 将领域作为一个类别变量, 约见人数可以出现在多行. 然后根据约见人数的中位数排序绘制箱线图如上.
+
+从上图可以看到, 平均而言, 所选的8个类别相较于其他的领域有着更高的约见人数; 其中, 心理、投资理财、创业和投融资这三个领域的约见人数平均更多.
+
+
+
+5. 绘制不同邀约接受率（arating）、不同响应时长（react_tm）、是否回复评价（is_rp）和话题约见人数（topic_ordcnt）的箱线图，并进行描述分析
+
+```{r}
+topic.mentor <- left_join(topic, mentor, by=c("mentor_id"))
+# colnames(topic.mentor)
+topic.mentor$ordcnt.log <- log(topic.mentor$topic_ordcnt+1)
+
+reply.table <- comment %>% group_by(topic_id) %>% summarise(reply.mean=mean(is_reply))
+# summary(reply.table)
+# 较多的评论是没有回复的, 因此将分组聚合之后, 有回复的topic的is.rp属性设置为TRUE
+reply.table$is.rp <- reply.table$reply.mean>0
+topic.mentor.comment <- left_join(topic.mentor, reply.table, by=c("topic_id"))
+# summary(topic.mentor.comment)
+```
+
+```{r}
+box.arating <- ggplot(topic.mentor) + 
+  geom_boxplot(aes(arating, ordcnt.log), fill="gray", varwidth=TRUE) +
+  labs(x="邀约接受率", y = "对数话题约见人数") +
+  theme_bw() + 
+  theme(panel.border=element_blank(),
+        text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 11))
+box.react <- ggplot(topic.mentor) + 
+  geom_boxplot(aes(react_tm, ordcnt.log), fill="gray", varwidth=TRUE) +
+  labs(x="响应时长", y = "对数话题约见人数") +
+  theme_bw() + 
+  theme(panel.border=element_blank(),
+        text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 11))
+
+box.isrp <- ggplot(topic.mentor.comment) + 
+  geom_boxplot(aes(is.rp, ordcnt.log), fill="gray", varwidth=TRUE) +
+  labs(x="是否回复评价", y = "对数话题约见人数") +
+  theme_bw() + 
+  theme(panel.border=element_blank(),
+        text = element_text(family = "STXihei"),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 11))
+# box.isrp
+
+ggarrange(box.arating, box.react, box.isrp)
+```
+
+分别绘制邀约接受率（arating）、不同响应时长（react_tm）、是否回复评价（is_rp）和话题约见人数（topic_ordcnt）的箱线图. 因此, 主表为 topic 表, 接受率和相应时长通过连接 mentor 得到; 对于是否回复评论, 需要分组聚合 comment 表, 这里将一个 topic的所有评论中, 只要有一个回复就认为此 topic 进行了回复. 三个箱线图绘制如上.
+
+可以看到, 1) 接受率较高的topic有着较多的话题约见人数; 2) 响应时长也和话题约见人数有关, 半天和1天内回应的topic有着较高的约见人数; 3) 有回复评论的topic一般有着较高的约见人数, 此图中的NA表示该topic没有评论, 可以看到这些topic的约见人数也较低, 这是符合常识的.
+
+
+6. 根据comment表中信息，绘制各行业用户数量柱状图并进行描述分析
+
+```{r}
+# 去除NA
+comment.nna <- comment[!is.na(comment$user_industry_name), ]
+# 统计各个行业用户数
+user.industry.cnt <- comment.nna %>% group_by(user_industry_name) %>% 
+  summarise(count=length(unique(user_id)))
+# 排序
+user.industry.cnt <- user.industry.cnt[order(user.industry.cnt$count, decreasing = TRUE),]
+user.industry.cnt$user_industry_name <- factor(user.industry.cnt$user_industry_name, levels = user.industry.cnt$user_industry_name)
+# 柱状图
+# bar1 <- ggplot(user.industry.cnt[1:10, ]) +
+#     geom_bar(aes(x=user_industry_name, y=(count)), fill = "gray", stat= 'identity') +
+#     labs(y = "频数", x = "用户所在行业") +
+#     theme_bw() + 
+#     ylim(0,8000) +
+#     theme(panel.border = element_blank(), 
+#           text = element_text(family = "STXihei"),
+#           axis.title = element_text(size = 12),
+#           axis.text = element_text(size = 8))
+# bar2 <- ggplot(user.industry.cnt[45:53, ]) +
+#     geom_bar(aes(x=user_industry_name, y=(count)), fill = "gray", stat= 'identity') +
+#     labs(y = "频数", x = "用户所在行业") +
+#     theme_bw() + 
+#     ylim(0,8000) +
+#     theme(panel.border = element_blank(), 
+#           text = element_text(family = "STXihei"),
+#           axis.title = element_text(size = 12),
+#           axis.text = element_text(size = 8))
+# ggarrange(plotlist = list(bar1, bar2))
+ggplot(user.industry.cnt) +
+    geom_bar(aes(x=user_industry_name, y=count), fill = "gray", stat = 'identity') +
+    labs(y = "频数", x = "用户所在行业") +
+    coord_flip() +
+    theme_bw() +
+    theme(panel.border = element_blank(),
+          text = element_text(family = "STXihei"),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 5))
+```
+
+对于用户所在行业进行分类, 统计用户数量, 绘制柱状图如上. 可以看到, 行业最多的是互联网, 用户数量超过了7000人, 其次是IT、教育、学生、投资等, 均超过了1000人; 长尾行业较多.
+
+```{r}
+summary(topic.mentor.comment)
+user.industry.cnt
+head(topic)
+summary(comment)
+```
+
+7. 使用is_ord作为因变量Y，自变量选择话题价格、话题价格带、想见行家用户数、行家约见人数、话题持续时长、话题所在城市、行家回复邀约的时长、行家接受约见的比率、话题长度、话题是否在北上广以及所属行业进行建模。使用AIC进行模型选择，绘制ROC曲线并计算AUC。
+
+```{r}
+# data.full <- left_join(topic.mentor.comment, cate, by=c("topic_id"))
+# summary(data.full)
+# summary(topic.mentor.comment)
+
+# 划分数据集
+data.full <- topic.mentor.comment
+set.seed(116)    # 随机数种子
+idx <- sample(x = dim(data.full)[1], size = dim(data.full)[1]/5, replace = F)
+data.train <- data.full[-idx,]
+data.test <- data.full[idx,]
+```
+
+
+```{r}
+glm.fit0 = glm(
+  is_ord ~ price+price_b+heart+mentor_ordcnt+duration+topic_city+react_tm+arating+len_desc+is_fst+d1+d2+d3+d4+d5+d6+d7+d8+d9 , data = data.train, 
+  family = binomial()
+)
+## 查看回归结果
+summary(glm.fit0)
+```
+
+```{r}
+glm.aic <- step(glm.fit0, trace = F)     # AIC
+summary(glm.aic)
+```
+
+```{r}
+library(pROC)
+library(caret)
+
+# 进行预测并绘制ROC曲线
+pred <- predict(glm.aic, data.test, type="response")
+roc_glm <- roc(data.test$is_ord, pred)
+
+# 绘制ROC曲线
+par(family='STXihei')
+plot(roc_glm, col = "dodgerblue", print.auc=TRUE,
+     auc.polygon=TRUE, auc.polygon.col="#f6f6f6", main = "预测ROC曲线", xlim = c(1,0),
+     xlab = "特异度",ylab = "敏感度")  
+```
+
+使用is_ord作为因变量Y，自变量选择话题价格、话题价格带、想见行家用户数、行家约见人数、话题持续时长、话题所在城市、行家回复邀约的时长、行家接受约见的比率、话题长度、话题是否在北上广以及所属行业进行建模。
+
+使用AIC进行模型选择，绘制ROC曲线如上。
