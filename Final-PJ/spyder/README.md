@@ -1,8 +1,11 @@
 
+灵感: <https://bgm.tv/blog/309472> 这里用GNN来预测动画排名
+
 ## 数据说明
 
 `anime_info_t`: B站番剧信息
 
+- 来源: 从 <https://www.bilibili.com/anime/index/> 爬取B站所有动画列表, 然后爬取B站相关数据
 - 字段见 [番剧信息API](https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/bangumi/info.md)
 - 参见页面: <https://www.bilibili.com/bangumi/play/ss41410>
 - 处理后共 3241 条
@@ -31,6 +34,7 @@
 
 `subject_t`: anime 基本信息, 爬取自 bgm.tv
 
+- 来源: 从 <https://bgm.tv/anime/browser/> 得到 bangumi 动画区下的所有条目列表, 再爬取详细信息
 - 相关字段见 [条目信息API](https://bangumi.github.io/api/#/%E6%9D%A1%E7%9B%AE/getSubjectById)
 - 参见页面: <https://bgm.tv/subject/329906>
 - 处理后共 16224 条
