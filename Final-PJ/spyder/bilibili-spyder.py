@@ -1,6 +1,8 @@
 """ 220520 @Lightblues
 基于API的 Bilibili 爬虫
 API: 
+---
+220526 转到 mongo
 """
 
 from requests_html import HTMLSession
@@ -16,6 +18,11 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import logging
 import json
+from datetime import datetime
+from tqdm import tqdm
+
+from pymongo import MongoClient
+from pymongo.collection import Collection
 
 from easonsi import utils
 from config.config import config_mysql, header_bilibili
@@ -27,6 +34,7 @@ class SpyderBilibili(object):
         # logging.info(f"init mysql database {config_mysql['database']}")
         self.init_session(header_bilibili)
         # self.init_logging()
+        self.db = MongoClient('mongodb://localhost:27017/').bilibili
     
     def init_mysql(self, config):
         self.conn: mysql.connector.MySQLConnection = mysql.connector.connect(**config)
@@ -73,7 +81,7 @@ class SpyderBilibili(object):
         return 0, rows
 
 
-    def init_logging(self, logname=f"{__file__}", dir="logs/", level=logging.INFO):
+    def init_logging(self, logname=f"{__file__}", dir="logs/bilibili/", level=logging.INFO):
         # 统一将日志记录在 logs 中, logname/taskname 不需要加后缀 .log
         os.makedirs(dir, exist_ok=True)
         logging.root.handlers = []
@@ -235,8 +243,160 @@ class SpyderBilibili(object):
                 logging.info(f"{i}/{len(result)} has been inserted")
             
         logging.info(f"end {taskname}...")
+
+    def get_all_animes(self, taskname="get_all_animes"):
+        """ 
+        URL: https://www.bilibili.com/anime/index/
+        """
+        self.init_logging(taskname)
+        url_pgc_season_index = "https://api.bilibili.com/pgc/season/index/result?season_version=-1&spoken_language_type=-1&area=-1&is_finish=-1&copyright=-1&season_status=-1&season_month=-1&year=-1&style_id=-1&order=3&st=1&sort=0&page={}&season_type=1&pagesize=20&type=1"
+        total_pages = math.ceil(3241/20) # 163
+        collection: Collection = self.db.bilibili_animelist
+        count_success = count_craweled = 0
+        for page in range(1, total_pages+1):
+            if collection.find_one({"page": page}):
+                count_success += 1
+                continue
+            r = self.session.get(url_pgc_season_index.format(page)).json()
+            if r['code'] != 0:
+                logging.error(f"page {page} code {r['code']}. {r}")
+            collection.insert_one({
+                "page": page,
+                "data": r['data']
+            })
+            count_craweled += 1
+            count_success += 1
+            if count_craweled%20==0:
+                t = random.randint(1, 3)
+                logging.info(f"{count_success}/{total_pages} has been crawled. random sleep {t}s")
+                time.sleep(t)
+        logging.info(f"{count_success}/{total_pages} has been crawled")
+    
+    
+    def get_anime_info(self, ssid, version="1"):
+        """ 
+        API: http://api.bilibili.com/pgc/view/web/season?season_id=41410
+        """
+        collection: Collection = self.db.anime_info
+        d = collection.find_one({
+            "ssid": ssid,
+            "version": version,
+            # "titlecn": {"$exists": True}
+        })
+        if d:
+            return 0, d
+        try:
+            r = self.session.get("http://api.bilibili.com/pgc/view/web/season?season_id={}".format(ssid)).json()
+            d = {
+                "ssid": ssid,
+                "info": r["result"],
+                "version": version,
+                "t_update": datetime.now()
+            }
+            collection.insert_one(d)
+            return 1, d
+        except Exception as e:
+            return -1, e
         
+    def get_anime_list(self, ssids, taskname="get_anime_list"):
+        """ 爬取ssid列表. 调用 get_anime
+        """
+        self.init_logging(taskname)
+        count_total = len(ssids)
+        logging.info(f"start {taskname}.. total subjects: {count_total}")
+        count_success = count_crawled = 0
+        for ssid in ssids:
+            e, d = self.get_anime_info(ssid)
+            if e<0:
+                logging.error(f"error at {ssid} !!!")
+                logging.error(d)
+                continue
+            elif e==1:
+                count_crawled += 1
+            if count_crawled  and count_crawled%20==0:
+                t = random.randint(3, 5)
+                logging.info(f"[{count_success}/{count_total}] {count_crawled} items crawled, randomly sleep {t}s")
+                time.sleep(t)
+            count_success += 1
+        logging.info(f"end {taskname}.. {count_success}/{count_total} craweled")
+
+    
+    def get_all_animes_info(self, taskname="get_all_animes_info"):
+        collection_animelist = self.db.bilibili_animelist
+        season_ids = []
+        for item in collection_animelist.find():
+            for anime in item['data']['list']:
+                season_ids.append(str(anime['season_id']))
+        # 
+        self.get_anime_list(season_ids, taskname)
         
+    def transfer(self, taskname="transfer"):
+        """ 转移数据 """
+        code, result = self.db_select_many("video_info", f"version=%s", (1,), columns="bvid, raw")
+        # cursor: MySQLCursor = self.conn.cursor()
+        collection: Collection = self.db.video_info
+        for bvid,raw in tqdm(result):
+            collection.insert_one({
+                "bvid": bvid,
+                "raw": raw,
+                "version": 1,
+                "t_update": datetime.now()
+            })
+
+    def process_animes_info(self):
+        """ 处理番剧列表
+        输出: anime_info_t"""
+        collection_raw = self.db.anime_info
+        self.db.drop_collection("anime_info_t")
+        collection_anime_info_t = self.db.anime_info_t
+        for item in tqdm(collection_raw.find()):
+            info = item['info']
+            d = {"ssid": item['ssid']}
+            # 
+            for c in cols_animeinfo:
+                d[c] = info[c] if c in info else None
+            # 统计指标 coins, danmakus favorites likes reply share views
+            d.update(info['stat'])
+            # 评分 count score 注意可能不存在该字段
+            rating = info['rating'] if 'rating' in info else {}
+            d.update(rating)
+            # 权限相关 allow_bp allow_bp_rank allow_download allow_review area_limit ban_area_show can_watch copyright forbid_pre freya_white is_cover_show is_preview only_vip_download resource watch_platform
+            d.update(info['rights'])
+            # 发布相关 is_finish is_started pub_time pub_time_show weekday
+            if "publish" in info:
+                d.update(info["publish"])
+            # desc id is_new title
+            if "new_ep" in info:
+                d.update(info["new_ep"])
+            
+            # episodes 例如柯南列表过长, 超出xlsx限制, 因此加以限制
+            episodes = info['episodes'] if 'episodes' in info else []
+            e = []
+            if len(episodes) > 200:
+                logging.warning(f"{item['ssid'], d['season_title']} episodes {len(episodes)} too long, only keep first 200")
+            for episode in episodes[:200]:
+                e.append({k:v for k,v in episode.items() if k in cols_episodes})
+            if len(str(e)) > 30000:
+                logging.error(f"{item['ssid']} episodes too long, {e}")
+            seasons = info['seasons']
+            s = []
+            for season in seasons:
+                s.append({k:v for k,v in season.items() if k in cols_seasons})
+            d['seasons'] = s
+            d['episodes'] = e
+            for ii in "series".split():
+                d[ii] = info[ii] if ii in info else None
+            collection_anime_info_t.insert_one(d)
+
+
+cols_animeinfo = "evaluate season_id season_title title subtitle total type subtitle "  \
+    "link bkg_cover cover share_url".split()
+# "episodes new_ep payment positive publish rating rights seasons section series stat"
+# cols_episodes = "aid bvid cid id badge duration from is_view_hide long_title pub_time release_date link".split()
+cols_episodes = "id bvid long_title".split()
+cols_seasons = "season_id season_title".split()
+# dimension 
+
 spyder = SpyderBilibili()
 # 「每周必看」
 if False:
@@ -247,8 +407,13 @@ if False:
     spyder.get_popular_weekly_videos()
     spyder.process_video_info()
 
+if False:
+    spyder.get_all_animes()
+    spyder.get_all_animes_info()
+# spyder.transfer()
+spyder.process_animes_info()
+
 # spyder.get_video_single("BV14b411J7ML")
 # code, result = spyder.db_select_one("video_info", f"version=%s AND bvid=%s", (1, "BV14b411J7ML"), columns="raw")
 # code, result = spyder.db_select_one("popular_weekly", f"version=%s AND number=%s", (1, 1), columns="raw")
-
 print()
